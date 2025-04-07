@@ -15,6 +15,7 @@ import * as yaml from 'js-yaml';
 import { TemplateRegistry } from './services/templateRegistry';
 import { ReportingService } from './services/reportingService';
 import { MetadataTemplate } from './types/template';
+import { processOpenGraphMetadata } from './services/openGraphService';
 
 /**
  * Extracts frontmatter from markdown content
@@ -207,13 +208,15 @@ function reportValidationErrors(
  * @param frontmatter The original frontmatter
  * @param template The template to apply
  * @param filePath The path to the file
+ * @param reportingService The reporting service to use
  * @returns The updated frontmatter and whether it was changed
  */
-function addMissingRequiredFields(
+async function addMissingRequiredFields(
   frontmatter: Record<string, any>,
   template: MetadataTemplate,
-  filePath: string
-): { updatedFrontmatter: Record<string, any>; changed: boolean } {
+  filePath: string,
+  reportingService: ReportingService
+): Promise<{ updatedFrontmatter: Record<string, any>; changed: boolean }> {
   // Create a copy of the frontmatter to avoid modifying the original
   const updatedFrontmatter = { ...frontmatter };
   let changed = false;
@@ -305,6 +308,32 @@ function addMissingRequiredFields(
       }
     }
     
+    // Process OpenGraph metadata if URL is present
+    if (updatedFrontmatter.url || updatedFrontmatter.link) {
+      console.log(`URL found in ${filePath}, processing OpenGraph metadata...`);
+      
+      // Process OpenGraph metadata
+      const ogResult = await processOpenGraphMetadata(updatedFrontmatter, filePath);
+      
+      // Update frontmatter and changed flag
+      const ogChanged = ogResult.changed;
+      if (ogChanged) {
+        // Copy over the updated frontmatter properties instead of reassigning
+        Object.assign(updatedFrontmatter, ogResult.updatedFrontmatter);
+        changed = true;
+        
+        // Log OpenGraph processing result
+        if (updatedFrontmatter.og_error) {
+          reportingService.logOpenGraphProcessing(filePath, 'failure');
+        } else {
+          reportingService.logOpenGraphProcessing(filePath, 'success');
+        }
+      } else {
+        // If no changes were made, it was likely skipped
+        reportingService.logOpenGraphProcessing(filePath, 'skipped');
+      }
+    }
+    
     return { updatedFrontmatter, changed };
   } catch (error) {
     console.error(`Error adding missing required fields to ${filePath}:`, error);
@@ -319,6 +348,7 @@ export class FileSystemObserver {
   private watcher: chokidar.FSWatcher;
   private templateRegistry: TemplateRegistry;
   private reportingService: ReportingService;
+  private reportInterval: NodeJS.Timeout | null = null;
   
   /**
    * Create a new FileSystemObserver
@@ -343,6 +373,9 @@ export class FileSystemObserver {
     
     // Set up event handlers
     this.setupEventHandlers();
+    
+    // Set up report generation
+    this.setupReportGeneration();
   }
   
   /**
@@ -383,6 +416,48 @@ export class FileSystemObserver {
   }
   
   /**
+   * Set up periodic report generation
+   */
+  private setupReportGeneration(): void {
+    // Set up periodic report generation (every 5 minutes)
+    this.reportInterval = setInterval(async () => {
+      // Only generate report if files were processed
+      if (this.reportingService.hasProcessedFiles()) {
+        const reportPath = await this.reportingService.writeReport();
+        if (reportPath) {
+          console.log(`Generated periodic report: ${reportPath}`);
+        }
+      } else {
+        console.log('No files processed since last report, skipping report generation');
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    // Generate final report on process exit
+    process.on('SIGINT', async () => {
+      console.log('Received SIGINT, shutting down...');
+      
+      // Clear the report interval
+      if (this.reportInterval) {
+        clearInterval(this.reportInterval);
+      }
+      
+      // Generate final report if files were processed
+      if (this.reportingService.hasProcessedFiles()) {
+        const reportPath = await this.reportingService.writeReport();
+        if (reportPath) {
+          console.log(`Generated final report: ${reportPath}`);
+        }
+      }
+      
+      // Close the watcher
+      this.watcher.close();
+      
+      // Exit the process
+      process.exit(0);
+    });
+  }
+  
+  /**
    * Handle a new file event
    * @param filePath The path to the new file
    */
@@ -415,10 +490,11 @@ export class FileSystemObserver {
           }
           
           // Check for missing required fields
-          const { updatedFrontmatter, changed } = addMissingRequiredFields(
+          const { updatedFrontmatter, changed } = await addMissingRequiredFields(
             frontmatterResult.frontmatter,
             template,
-            filePath
+            filePath,
+            this.reportingService
           );
           
           // Log what fields were added
@@ -512,10 +588,11 @@ export class FileSystemObserver {
         console.log(`Checking required fields for ${filePath} with template ${template.id}`);
         console.log(`Current frontmatter:`, frontmatterResult.frontmatter);
         
-        const { updatedFrontmatter, changed } = addMissingRequiredFields(
+        const { updatedFrontmatter, changed } = await addMissingRequiredFields(
           frontmatterResult.frontmatter,
           template,
-          filePath
+          filePath,
+          this.reportingService
         );
         
         // Log what fields were added

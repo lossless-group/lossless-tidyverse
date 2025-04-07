@@ -47,7 +47,7 @@ const toolingTemplate: MetadataTemplate = {
         }
         return false;
       },
-      // Extract first directory after 'tooling' and convert to Train-Case
+      // Extract all directory names after 'tooling/' and convert to Train-Case
       defaultValueFn: (filePath: string) => {
         try {
           console.log(`Generating tags for ${filePath}`);
@@ -69,11 +69,13 @@ const toolingTemplate: MetadataTemplate = {
             return ['Uncategorized'];
           }
           
-          // Get the first directory after 'tooling'
-          const firstDir = pathAfterTooling.split('/')[0];
+          // Get all directories after 'tooling' (excluding the filename)
+          const dirParts = pathAfterTooling.split('/');
+          // Remove the last part (filename)
+          dirParts.pop();
           
-          if (!firstDir) {
-            console.log(`No directory after 'tooling/' in: ${filePath}`);
+          if (dirParts.length === 0) {
+            console.log(`No directories after 'tooling/' in: ${filePath}`);
             return ['Uncategorized'];
           }
           
@@ -91,10 +93,12 @@ const toolingTemplate: MetadataTemplate = {
             }).join('-');
           };
           
-          const trainCaseTag = convertToTrainCase(firstDir);
-          console.log(`Generated tag for ${filePath}: ${trainCaseTag}`);
+          // Convert all directory parts to Train-Case and use as tags
+          const tags = dirParts.map(dir => convertToTrainCase(dir));
           
-          return [trainCaseTag];
+          console.log(`Generated tags for ${filePath}: ${tags.join(', ')}`);
+          
+          return tags;
         } catch (error) {
           console.error(`Error generating tags for ${filePath}:`, error);
           return ['Uncategorized'];

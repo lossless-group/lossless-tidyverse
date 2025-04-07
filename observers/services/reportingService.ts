@@ -4,6 +4,8 @@
  * Handles writing validation reports to files in the content/reports directory.
  * This ensures that validation results and property conversions are not just logged
  * to the console but also persisted for later review.
+ * 
+ * The service also tracks OpenGraph processing statistics for reporting.
  */
 
 import * as fs from 'fs/promises';
@@ -18,6 +20,24 @@ export class ReportingService {
   private conversionLog: Array<{file: string, fromKey: string, toKey: string}> = [];
   private validationIssues: Array<{file: string, result: ValidationResult}> = [];
   private processedFiles: string[] = [];
+  
+  /**
+   * OpenGraph processing statistics
+   * - processed: Total number of files processed for OpenGraph data
+   * - succeeded: Set of files with successful OpenGraph fetches
+   * - failed: Set of files with failed OpenGraph fetches
+   * - skipped: Set of files skipped (already had data)
+   * - screenshotSucceeded: Set of files with successful screenshot URL fetches
+   * - screenshotFailed: Set of files with failed screenshot URL fetches
+   */
+  private openGraphStats = {
+    processed: 0,
+    succeeded: new Set<string>(),
+    failed: new Set<string>(),
+    skipped: new Set<string>(),
+    screenshotSucceeded: new Set<string>(),
+    screenshotFailed: new Set<string>()
+  };
   
   /**
    * Create a new ReportingService
@@ -53,15 +73,80 @@ export class ReportingService {
   }
   
   /**
-   * Generate a report for all logged events
-   * @returns A string containing the report in markdown format
+   * Log OpenGraph processing
+   * @param filePath The file path
+   * @param status The status of the OpenGraph processing (success, failure, skipped)
    */
-  generateReport(): string {
+  logOpenGraphProcessing(filePath: string, status: 'success' | 'failure' | 'skipped'): void {
+    if (status === 'success') {
+      this.openGraphStats.succeeded.add(filePath);
+      console.log(`✅ Successfully fetched OpenGraph data for ${filePath}`);
+    } else if (status === 'failure') {
+      this.openGraphStats.failed.add(filePath);
+      console.log(`❌ Failed to fetch OpenGraph data for ${filePath}`);
+    } else {
+      this.openGraphStats.skipped.add(filePath);
+      console.log(`⚠️ Skipped OpenGraph fetch for ${filePath} (already has data)`);
+    }
+    this.openGraphStats.processed++;
+  }
+  
+  /**
+   * Log screenshot URL processing
+   * @param filePath The file path
+   * @param status The status of the screenshot URL processing (success, failure)
+   */
+  logScreenshotProcessing(filePath: string, status: 'success' | 'failure'): void {
+    if (status === 'success') {
+      this.openGraphStats.screenshotSucceeded.add(filePath);
+      console.log(`✅ Successfully fetched screenshot URL for ${filePath}`);
+    } else {
+      this.openGraphStats.screenshotFailed.add(filePath);
+      console.log(`❌ Failed to fetch screenshot URL for ${filePath}`);
+    }
+  }
+  
+  /**
+   * Check if any files have been processed
+   * @returns True if any files have been processed, false otherwise
+   */
+  hasProcessedFiles(): boolean {
+    return this.processedFiles.length > 0 || this.openGraphStats.processed > 0;
+  }
+  
+  /**
+   * Reset all statistics
+   */
+  resetStats(): void {
+    this.conversionLog = [];
+    this.validationIssues = [];
+    this.processedFiles = [];
+    this.openGraphStats = {
+      processed: 0,
+      succeeded: new Set<string>(),
+      failed: new Set<string>(),
+      skipped: new Set<string>(),
+      screenshotSucceeded: new Set<string>(),
+      screenshotFailed: new Set<string>()
+    };
+  }
+  
+  /**
+   * Generate a report for all logged events
+   * @returns A string containing the report in markdown format, or null if no files were processed
+   */
+  generateReport(): string | null {
+    // Skip report generation if no files were processed
+    if (!this.hasProcessedFiles()) {
+      console.log('No files were processed, skipping report generation');
+      return null;
+    }
+    
     const today = new Date();
     const dateString = today.toISOString().split('T')[0];
     const timeString = today.toTimeString().split(' ')[0];
     
-    const report = `---
+    let report = `---
 title: Frontmatter Observer Report
 date: ${dateString}
 time: ${timeString}
@@ -71,13 +156,65 @@ time: ${timeString}
 - Total files processed: ${this.processedFiles.length}
 - Files with property name conversions: ${this.getUniqueFilesWithConversions().length}
 - Files with validation issues: ${this.validationIssues.length}
+- OpenGraph processing:
+  - Total processed: ${this.openGraphStats.processed}
+  - Successfully fetched: ${this.openGraphStats.succeeded.size}
+  - Failed to fetch: ${this.openGraphStats.failed.size}
+  - Skipped (already had data): ${this.openGraphStats.skipped.size}
+- Screenshot URL processing:
+  - Successfully fetched: ${this.openGraphStats.screenshotSucceeded.size}
+  - Failed to fetch: ${this.openGraphStats.screenshotFailed.size}
 
 ### Files with Property Name Conversions
 ${this.formatConversionList()}
 
 ### Files with Validation Issues
-${this.formatValidationIssues()}
-`;
+${this.formatValidationIssues()}`;
+    
+    // Add OpenGraph processing details if any files were processed
+    if (this.openGraphStats.processed > 0 || this.openGraphStats.screenshotSucceeded.size > 0 || this.openGraphStats.screenshotFailed.size > 0) {
+      report += '\n\n## OpenGraph Processing Details';
+      
+      if (this.openGraphStats.succeeded.size > 0) {
+        report += '\n\n### Files with successful OpenGraph fetches\n';
+        for (const file of this.openGraphStats.succeeded) {
+          const relativePath = file.replace(/^.*\/content\//, 'content/');
+          report += `- [[${relativePath}]]\n`;
+        }
+      }
+      
+      if (this.openGraphStats.failed.size > 0) {
+        report += '\n\n### Files with failed OpenGraph fetches\n';
+        for (const file of this.openGraphStats.failed) {
+          const relativePath = file.replace(/^.*\/content\//, 'content/');
+          report += `- [[${relativePath}]]\n`;
+        }
+      }
+      
+      if (this.openGraphStats.skipped.size > 0) {
+        report += '\n\n### Files skipped (already had OpenGraph data)\n';
+        for (const file of this.openGraphStats.skipped) {
+          const relativePath = file.replace(/^.*\/content\//, 'content/');
+          report += `- [[${relativePath}]]\n`;
+        }
+      }
+      
+      if (this.openGraphStats.screenshotSucceeded.size > 0) {
+        report += '\n\n### Files with successful screenshot URL fetches\n';
+        for (const file of this.openGraphStats.screenshotSucceeded) {
+          const relativePath = file.replace(/^.*\/content\//, 'content/');
+          report += `- [[${relativePath}]]\n`;
+        }
+      }
+      
+      if (this.openGraphStats.screenshotFailed.size > 0) {
+        report += '\n\n### Files with failed screenshot URL fetches\n';
+        for (const file of this.openGraphStats.screenshotFailed) {
+          const relativePath = file.replace(/^.*\/content\//, 'content/');
+          report += `- [[${relativePath}]]\n`;
+        }
+      }
+    }
     
     return report;
   }
@@ -165,8 +302,17 @@ ${this.formatValidationIssues()}
   
   /**
    * Write the report to a file
+   * @returns The path to the report file, or null if no report was generated
    */
-  async writeReport(): Promise<string> {
+  async writeReport(): Promise<string | null> {
+    // Generate the report
+    const report = this.generateReport();
+    
+    // Skip writing if no report was generated
+    if (!report) {
+      return null;
+    }
+    
     // Ensure the report directory exists
     try {
       await fs.mkdir(this.reportDirectory, { recursive: true });
@@ -175,7 +321,6 @@ ${this.formatValidationIssues()}
       console.error(`Error creating report directory: ${error}`);
     }
     
-    const report = this.generateReport();
     const today = new Date();
     const dateString = today.toISOString().split('T')[0];
     const timeString = today.toTimeString().split(' ')[0].replace(/:/g, '-');
@@ -187,9 +332,7 @@ ${this.formatValidationIssues()}
     console.log(`Report written to ${filePath}`);
     
     // Reset the logs after writing the report
-    this.conversionLog = [];
-    this.validationIssues = [];
-    this.processedFiles = [];
+    this.resetStats();
     
     return filePath;
   }
