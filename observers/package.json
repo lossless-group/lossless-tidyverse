@@ -1,0 +1,23 @@
+{
+  "name": "frontmatter-observer",
+  "version": "0.1.0",
+  "description": "Filesystem observer for frontmatter consistency",
+  "main": "index.ts",
+  "scripts": {
+    "start": "ts-node index.ts",
+    "build": "tsc",
+    "watch": "ts-node-dev --respawn index.ts"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3",
+    "js-yaml": "^4.1.0",
+    "minimatch": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.11.5",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  }
+}
