@@ -6,6 +6,7 @@
  */
 
 import { MetadataTemplate } from '../types/template';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Template for tooling directory files
@@ -23,23 +24,115 @@ const toolingTemplate: MetadataTemplate = {
   
   // Required fields that must be present in frontmatter
   required: {
-    title: {
+    site_uuid: {
       type: 'string',
-      description: 'Title of the tool or service',
-      validation: (value) => typeof value === 'string' && value.length > 0
+      description: 'Unique identifier for the tool/service',
+      validation: (value) => typeof value === 'string' && value.length > 0,
+      defaultValueFn: () => {
+        // Generate a new UUID v4
+        return uuidv4();
+      }
     },
     tags: {
       type: 'array',
       description: 'Categorization tags',
-      validation: (value) => Array.isArray(value) && value.length > 0,
-      // First tag should match the subdirectory name
-      defaultValueFn: (filePath: string) => {
-        const pathParts = filePath.split('/');
-        const directoryIndex = pathParts.indexOf('tooling') + 1;
-        if (directoryIndex > 0 && directoryIndex < pathParts.length) {
-          return [pathParts[directoryIndex]];
+      validation: (value) => {
+        // Handle various tag formats
+        if (Array.isArray(value)) {
+          // Array format is already correct
+          return value.length > 0;
+        } else if (typeof value === 'string') {
+          // If it's a string, it might be a comma-separated list
+          return value.trim().length > 0;
         }
-        return ['Uncategorized'];
+        return false;
+      },
+      // Extract first directory after 'tooling' and convert to Train-Case
+      defaultValueFn: (filePath: string) => {
+        try {
+          console.log(`Generating tags for ${filePath}`);
+          
+          // Normalize path separators to forward slashes
+          const normalizedPath = filePath.replace(/\\/g, '/');
+          
+          // Check if path contains 'content/tooling/'
+          if (!normalizedPath.includes('content/tooling/')) {
+            console.log(`Path does not contain 'content/tooling/': ${filePath}`);
+            return ['Uncategorized'];
+          }
+          
+          // Extract the part after 'content/tooling/'
+          const pathAfterTooling = normalizedPath.split('content/tooling/')[1];
+          
+          if (!pathAfterTooling) {
+            console.log(`No path after 'content/tooling/' in: ${filePath}`);
+            return ['Uncategorized'];
+          }
+          
+          // Get the first directory after 'tooling'
+          const firstDir = pathAfterTooling.split('/')[0];
+          
+          if (!firstDir) {
+            console.log(`No directory after 'tooling/' in: ${filePath}`);
+            return ['Uncategorized'];
+          }
+          
+          // Convert the directory name to Train-Case
+          const convertToTrainCase = (str: string): string => {
+            if (!str || str.trim() === '') return 'Uncategorized';
+            
+            // Split by spaces, hyphens, or underscores
+            const words = str.split(/[-_\s]+/);
+            
+            // Capitalize first letter of each word
+            return words.map(word => {
+              if (word.length === 0) return word;
+              return word.charAt(0).toUpperCase() + word.slice(1);
+            }).join('-');
+          };
+          
+          const trainCaseTag = convertToTrainCase(firstDir);
+          console.log(`Generated tag for ${filePath}: ${trainCaseTag}`);
+          
+          return [trainCaseTag];
+        } catch (error) {
+          console.error(`Error generating tags for ${filePath}:`, error);
+          return ['Uncategorized'];
+        }
+      }
+    },
+    date_created: {
+      type: 'date',
+      description: 'Creation date',
+      defaultValueFn: (filePath: string) => {
+        try {
+          console.log(`Generating date_created for ${filePath}`);
+          
+          // Use the Node.js fs module (not fs/promises) for synchronous operations
+          const fs = require('fs');
+          
+          // Check if file exists
+          if (fs.existsSync(filePath)) {
+            // Get file stats to access creation time
+            const stats = fs.statSync(filePath);
+            
+            // Use birthtime (actual file creation time) which is reliable on Mac
+            const timestamp = stats.birthtime;
+            
+            console.log(`File creation time for ${filePath}: ${timestamp.toISOString()}`);
+            
+            // Return full ISO string with timezone
+            return timestamp.toISOString();
+          } else {
+            console.log(`File does not exist: ${filePath}`);
+            // Return null instead of current date
+            return null;
+          }
+        } catch (error) {
+          console.error(`Error getting file stats for ${filePath}:`, error);
+          // Return null instead of current date
+          return null;
+        }
       }
     },
     date_modified: {
@@ -49,15 +142,11 @@ const toolingTemplate: MetadataTemplate = {
         const today = new Date();
         return today.toISOString().split('T')[0];
       }
-    }
+    },
   },
   
   // Optional fields that may be present in frontmatter
   optional: {
-    site_uuid: {
-      type: 'string',
-      description: 'Unique identifier for the tool/service'
-    },
     url: {
       type: 'string',
       description: 'Official website URL',

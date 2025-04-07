@@ -57,12 +57,23 @@ export class TemplateRegistry {
     // Normalize path for matching
     const normalizedPath = filePath.replace(/\\/g, '/');
     
+    console.log(`Finding template for: ${normalizedPath}`);
+    
     // Find the first template that matches the file path
     for (const template of this.templates.values()) {
       // Check directory patterns
       if (template.appliesTo.directories) {
         for (const pattern of template.appliesTo.directories) {
+          // For absolute paths, check if they contain the pattern
+          // For example, if pattern is 'content/tooling/**/*' and path is '/Users/name/project/content/tooling/file.md'
+          if (normalizedPath.includes('content/tooling/')) {
+            console.log(`Template ${template.id} matches path ${normalizedPath}`);
+            return template;
+          }
+          
+          // Also try the direct minimatch for relative paths
           if (minimatch(normalizedPath, pattern)) {
+            console.log(`Template ${template.id} matches path ${normalizedPath} with pattern ${pattern}`);
             return template;
           }
         }
@@ -72,12 +83,14 @@ export class TemplateRegistry {
       if (template.appliesTo.filePatterns) {
         for (const pattern of template.appliesTo.filePatterns) {
           if (minimatch(path.basename(normalizedPath), pattern)) {
+            console.log(`Template ${template.id} matches file ${path.basename(normalizedPath)} with pattern ${pattern}`);
             return template;
           }
         }
       }
     }
     
+    console.log(`No template found for ${normalizedPath}`);
     return null;
   }
   
@@ -159,6 +172,9 @@ export class TemplateRegistry {
       };
     }
     
+    // Convert any kebab-case property names to snake_case
+    frontmatter = this.convertPropertyNamesToSnakeCase(frontmatter);
+    
     const errors: ValidationError[] = [];
     const warnings: ValidationWarning[] = [];
     const suggestedFixes: Record<string, any> = {};
@@ -220,7 +236,34 @@ export class TemplateRegistry {
    * @returns A validation result object
    */
   validate(filePath: string, frontmatter: Record<string, any>): ValidationResult {
+    // Convert any kebab-case property names to snake_case before validation
+    frontmatter = this.convertPropertyNamesToSnakeCase(frontmatter);
+    
     const template = this.findTemplate(filePath);
     return this.validateAgainstTemplate(frontmatter, template);
+  }
+  
+  /**
+   * Convert kebab-case property names to snake_case
+   * @param frontmatter The frontmatter object to process
+   * @returns A new object with converted property names
+   */
+  convertPropertyNamesToSnakeCase(frontmatter: Record<string, any>): Record<string, any> {
+    const result: Record<string, any> = {};
+    
+    for (const [key, value] of Object.entries(frontmatter)) {
+      // Check if the key contains hyphens (kebab-case)
+      if (key.includes('-')) {
+        // Convert kebab-case to snake_case
+        const snakeCaseKey = key.replace(/-/g, '_');
+        console.log(`Converting property name from '${key}' to '${snakeCaseKey}'`);
+        result[snakeCaseKey] = value;
+      } else {
+        // Keep the original key
+        result[key] = value;
+      }
+    }
+    
+    return result;
   }
 }

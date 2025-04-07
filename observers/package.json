@@ -11,11 +11,13 @@
   "dependencies": {
     "chokidar": "^3.5.3",
     "js-yaml": "^4.1.0",
-    "minimatch": "^9.0.3"
+    "minimatch": "^9.0.3",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.5",
+    "@types/uuid": "^10.0.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.3"
