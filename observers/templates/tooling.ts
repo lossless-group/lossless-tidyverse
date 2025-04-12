@@ -6,7 +6,7 @@
  */
 
 import { MetadataTemplate } from '../types/template';
-import { v4 as uuidv4 } from 'uuid';
+import { generateUUID, getFileCreationDate, getCurrentDate } from '../utils/commonUtils';
 
 /**
  * Template for tooling directory files
@@ -29,8 +29,8 @@ const toolingTemplate: MetadataTemplate = {
       description: 'Unique identifier for the tool/service',
       validation: (value) => typeof value === 'string' && value.length > 0,
       defaultValueFn: () => {
-        // Generate a new UUID v4
-        return uuidv4();
+        // Use the shared utility function for UUID generation
+        return generateUUID();
       }
     },
     tags: {
@@ -109,42 +109,16 @@ const toolingTemplate: MetadataTemplate = {
       type: 'date',
       description: 'Creation date',
       defaultValueFn: (filePath: string) => {
-        try {
-          console.log(`Generating date_created for ${filePath}`);
-          
-          // Use the Node.js fs module (not fs/promises) for synchronous operations
-          const fs = require('fs');
-          
-          // Check if file exists
-          if (fs.existsSync(filePath)) {
-            // Get file stats to access creation time
-            const stats = fs.statSync(filePath);
-            
-            // Use birthtime (actual file creation time) which is reliable on Mac
-            const timestamp = stats.birthtime;
-            
-            console.log(`File creation time for ${filePath}: ${timestamp.toISOString()}`);
-            
-            // Return full ISO string with timezone
-            return timestamp.toISOString();
-          } else {
-            console.log(`File does not exist: ${filePath}`);
-            // Return null instead of current date
-            return null;
-          }
-        } catch (error) {
-          console.error(`Error getting file stats for ${filePath}:`, error);
-          // Return null instead of current date
-          return null;
-        }
+        // Use the shared utility function for file creation date
+        return getFileCreationDate(filePath);
       }
     },
     date_modified: {
       type: 'date',
       description: 'Last modification date',
       defaultValueFn: () => {
-        const today = new Date();
-        return today.toISOString().split('T')[0];
+        // Use the shared utility function for current date
+        return getCurrentDate();
       }
     },
   },

@@ -20,6 +20,8 @@ export class ReportingService {
   private conversionLog: Array<{file: string, fromKey: string, toKey: string}> = [];
   private validationIssues: Array<{file: string, result: ValidationResult}> = [];
   private processedFiles: string[] = [];
+  private citationConversions: Array<{file: string, count: number}> = [];
+  private fieldsAdded: Array<{file: string, field: string, value: any}> = [];
   
   /**
    * OpenGraph processing statistics
@@ -107,6 +109,33 @@ export class ReportingService {
   }
   
   /**
+   * Log citation conversion
+   * @param filePath The file path
+   * @param count The number of citations converted
+   */
+  logCitationConversion(filePath: string, count: number): void {
+    if (count > 0) {
+      console.log(`📝 Converted ${count} citations in ${filePath}`);
+      // Add to processed files if not already there
+      if (!this.processedFiles.includes(filePath)) {
+        this.processedFiles.push(filePath);
+      }
+      this.citationConversions.push({ file: filePath, count });
+    }
+  }
+  
+  /**
+   * Log a field being added to frontmatter
+   * @param file The file where the field was added
+   * @param field The name of the field that was added
+   * @param value The value that was assigned to the field
+   */
+  logFieldAdded(file: string, field: string, value: any): void {
+    this.fieldsAdded.push({ file, field, value });
+    console.log(`Added field '${field}' with value '${value}' to ${file}`);
+  }
+  
+  /**
    * Check if any files have been processed
    * @returns True if any files have been processed, false otherwise
    */
@@ -121,6 +150,8 @@ export class ReportingService {
     this.conversionLog = [];
     this.validationIssues = [];
     this.processedFiles = [];
+    this.citationConversions = [];
+    this.fieldsAdded = [];
     this.openGraphStats = {
       processed: 0,
       succeeded: new Set<string>(),
@@ -136,15 +167,14 @@ export class ReportingService {
    * @returns A string containing the report in markdown format, or null if no files were processed
    */
   generateReport(): string | null {
-    // Skip report generation if no files were processed
+    // Skip generating a report if no files were processed
     if (!this.hasProcessedFiles()) {
-      console.log('No files were processed, skipping report generation');
       return null;
     }
     
     const today = new Date();
     const dateString = today.toISOString().split('T')[0];
-    const timeString = today.toTimeString().split(' ')[0];
+    const timeString = today.toTimeString().split(' ')[0].replace(/:/g, '-');
     
     let report = `---
 title: Frontmatter Observer Report
@@ -152,69 +182,39 @@ date: ${dateString}
 time: ${timeString}
 ---
 
-## Summary of Files Processed
-- Total files processed: ${this.processedFiles.length}
-- Files with property name conversions: ${this.getUniqueFilesWithConversions().length}
-- Files with validation issues: ${this.validationIssues.length}
-- OpenGraph processing:
-  - Total processed: ${this.openGraphStats.processed}
-  - Successfully fetched: ${this.openGraphStats.succeeded.size}
-  - Failed to fetch: ${this.openGraphStats.failed.size}
-  - Skipped (already had data): ${this.openGraphStats.skipped.size}
-- Screenshot URL processing:
-  - Successfully fetched: ${this.openGraphStats.screenshotSucceeded.size}
-  - Failed to fetch: ${this.openGraphStats.screenshotFailed.size}
+# Frontmatter Observer Report
+
+## Summary
+
+- **Files Processed**: ${this.processedFiles.length}
+- **Property Conversions**: ${this.conversionLog.length}
+- **Validation Issues**: ${this.validationIssues.length}
+- **Fields Added**: ${this.fieldsAdded.length}
+- **Citation Conversions**: ${this.citationConversions.length}
+- **OpenGraph Processing**:
+  - **Total Processed**: ${this.openGraphStats.processed}
+  - **Successfully Fetched**: ${this.openGraphStats.succeeded.size}
+  - **Failed to Fetch**: ${this.openGraphStats.failed.size}
+  - **Skipped (Already Had Data)**: ${this.openGraphStats.skipped.size}
+- **Screenshot URL Processing**:
+  - **Successfully Fetched**: ${this.openGraphStats.screenshotSucceeded.size}
+  - **Failed to Fetch**: ${this.openGraphStats.screenshotFailed.size}
 
 ### Files with Property Name Conversions
 ${this.formatConversionList()}
 
 ### Files with Validation Issues
-${this.formatValidationIssues()}`;
-    
-    // Add OpenGraph processing details if any files were processed
-    if (this.openGraphStats.processed > 0 || this.openGraphStats.screenshotSucceeded.size > 0 || this.openGraphStats.screenshotFailed.size > 0) {
-      report += '\n\n## OpenGraph Processing Details';
-      
-      if (this.openGraphStats.succeeded.size > 0) {
-        report += '\n\n### Files with successful OpenGraph fetches\n';
-        for (const file of this.openGraphStats.succeeded) {
-          const relativePath = file.replace(/^.*\/content\//, 'content/');
-          report += `- [[${relativePath}]]\n`;
-        }
-      }
-      
-      if (this.openGraphStats.failed.size > 0) {
-        report += '\n\n### Files with failed OpenGraph fetches\n';
-        for (const file of this.openGraphStats.failed) {
-          const relativePath = file.replace(/^.*\/content\//, 'content/');
-          report += `- [[${relativePath}]]\n`;
-        }
-      }
-      
-      if (this.openGraphStats.skipped.size > 0) {
-        report += '\n\n### Files skipped (already had OpenGraph data)\n';
-        for (const file of this.openGraphStats.skipped) {
-          const relativePath = file.replace(/^.*\/content\//, 'content/');
-          report += `- [[${relativePath}]]\n`;
-        }
-      }
-      
-      if (this.openGraphStats.screenshotSucceeded.size > 0) {
-        report += '\n\n### Files with successful screenshot URL fetches\n';
-        for (const file of this.openGraphStats.screenshotSucceeded) {
-          const relativePath = file.replace(/^.*\/content\//, 'content/');
-          report += `- [[${relativePath}]]\n`;
-        }
-      }
-      
-      if (this.openGraphStats.screenshotFailed.size > 0) {
-        report += '\n\n### Files with failed screenshot URL fetches\n';
-        for (const file of this.openGraphStats.screenshotFailed) {
-          const relativePath = file.replace(/^.*\/content\//, 'content/');
-          report += `- [[${relativePath}]]\n`;
-        }
-      }
-    }
+${this.formatValidationIssues()}
+
+### Files with Fields Added
+${this.formatFieldsAdded()}
+
+### Files with Citation Conversions
+${this.formatCitationConversions()}
+
+## OpenGraph Processing Details
+${this.formatOpenGraphProcessingDetails()}
+`;
     
     return report;
   }
@@ -295,6 +295,111 @@ ${this.formatValidationIssues()}`;
       }
       
       result += '\n';
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Format the fields added for the report
+   * @returns A formatted string
+   */
+  private formatFieldsAdded(): string {
+    if (this.fieldsAdded.length === 0) {
+      return 'No fields were added to any files.';
+    }
+    
+    const uniqueFiles = new Set<string>();
+    for (const addition of this.fieldsAdded) {
+      uniqueFiles.add(addition.file);
+    }
+    
+    let result = '';
+    
+    for (const file of uniqueFiles) {
+      const additionsForFile = this.fieldsAdded.filter(a => a.file === file);
+      const basename = path.basename(file);
+      
+      result += `#### [[${basename}]]\n`;
+      for (const addition of additionsForFile) {
+        const valueStr = typeof addition.value === 'object' 
+          ? JSON.stringify(addition.value) 
+          : String(addition.value);
+        result += `- Added \`${addition.field}\`: ${valueStr}\n`;
+      }
+      result += '\n';
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Format the citation conversions for the report
+   * @returns A formatted string
+   */
+  private formatCitationConversions(): string {
+    if (this.citationConversions.length === 0) {
+      return 'No citation conversions were performed.';
+    }
+    
+    let result = '';
+    
+    for (const conversion of this.citationConversions) {
+      const basename = path.basename(conversion.file);
+      
+      result += `#### [[${basename}]]\n`;
+      result += `- Converted ${conversion.count} citations\n`;
+      result += '\n';
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Format the OpenGraph processing details for the report
+   * @returns A formatted string
+   */
+  private formatOpenGraphProcessingDetails(): string {
+    let result = '';
+    
+    if (this.openGraphStats.succeeded.size > 0) {
+      result += '\n### Files with successful OpenGraph fetches\n';
+      for (const file of this.openGraphStats.succeeded) {
+        const relativePath = file.replace(/^.*\/content\//, 'content/');
+        result += `- [[${relativePath}]]\n`;
+      }
+    }
+    
+    if (this.openGraphStats.failed.size > 0) {
+      result += '\n### Files with failed OpenGraph fetches\n';
+      for (const file of this.openGraphStats.failed) {
+        const relativePath = file.replace(/^.*\/content\//, 'content/');
+        result += `- [[${relativePath}]]\n`;
+      }
+    }
+    
+    if (this.openGraphStats.skipped.size > 0) {
+      result += '\n### Files skipped (already had OpenGraph data)\n';
+      for (const file of this.openGraphStats.skipped) {
+        const relativePath = file.replace(/^.*\/content\//, 'content/');
+        result += `- [[${relativePath}]]\n`;
+      }
+    }
+    
+    if (this.openGraphStats.screenshotSucceeded.size > 0) {
+      result += '\n### Files with successful screenshot URL fetches\n';
+      for (const file of this.openGraphStats.screenshotSucceeded) {
+        const relativePath = file.replace(/^.*\/content\//, 'content/');
+        result += `- [[${relativePath}]]\n`;
+      }
+    }
+    
+    if (this.openGraphStats.screenshotFailed.size > 0) {
+      result += '\n### Files with failed screenshot URL fetches\n';
+      for (const file of this.openGraphStats.screenshotFailed) {
+        const relativePath = file.replace(/^.*\/content\//, 'content/');
+        result += `- [[${relativePath}]]\n`;
+      }
     }
     
     return result;

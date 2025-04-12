@@ -2,7 +2,7 @@
  * Frontmatter Observer Main Entry Point
  * 
  * This script initializes and runs the filesystem observer to monitor
- * the content/tooling directory for changes and ensure frontmatter consistency.
+ * the content directory for changes and ensure frontmatter consistency.
  * 
  * Usage:
  *   ts-node index.ts
@@ -39,9 +39,9 @@ async function main() {
   const reportingService = new ReportingService(reportsDir);
   console.log(`Reports directory: ${reportsDir}`);
   
-  // Determine content root path
+  // Determine content root path - this should be the parent directory of all content types
   // This assumes the script is run from the tidyverse/observers directory
-  const contentRoot = path.resolve(process.cwd(), '../../content/tooling');
+  const contentRoot = path.resolve(process.cwd(), '../../content');
   console.log(`Content root: ${contentRoot}`);
   
   // Create and start file system observer

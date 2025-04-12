@@ -1,18 +1,18 @@
 /**
  * Template Registry Service
  * 
- * Manages metadata templates and provides methods to find, validate, and apply templates
- * to markdown files based on their path and content.
+ * Manages templates for different content types and provides validation.
  */
 
 import { MetadataTemplate, ValidationResult, ValidationError, ValidationWarning } from '../types/template';
-import * as yaml from 'js-yaml';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { minimatch } from 'minimatch';
-
-// Import templates
+// Fix imports to use default exports
+import promptsTemplate from '../templates/prompts';
+import vocabularyTemplate from '../templates/vocabulary';
 import toolingTemplate from '../templates/tooling';
+import { formatFrontmatter } from '../fileSystemObserver';
 
 /**
  * Service for managing metadata templates and validating frontmatter
@@ -37,6 +37,8 @@ export class TemplateRegistry {
     
     // Register built-in templates
     this.registerTemplate(toolingTemplate);
+    this.registerTemplate(vocabularyTemplate);
+    this.registerTemplate(promptsTemplate);
   }
   
   /**
@@ -66,7 +68,19 @@ export class TemplateRegistry {
         for (const pattern of template.appliesTo.directories) {
           // For absolute paths, check if they contain the pattern
           // For example, if pattern is 'content/tooling/**/*' and path is '/Users/name/project/content/tooling/file.md'
-          if (normalizedPath.includes('content/tooling/')) {
+          if (template.id === 'tooling' && normalizedPath.includes('content/tooling/')) {
+            console.log(`Template ${template.id} matches path ${normalizedPath}`);
+            return template;
+          }
+          
+          // Check for vocabulary template
+          if (template.id === 'vocabulary' && normalizedPath.includes('content/vocabulary/')) {
+            console.log(`Template ${template.id} matches path ${normalizedPath}`);
+            return template;
+          }
+          
+          // Check for prompts template
+          if (template.id === 'prompts' && normalizedPath.includes('content/lost-in-public/prompts/')) {
             console.log(`Template ${template.id} matches path ${normalizedPath}`);
             return template;
           }
@@ -127,22 +141,20 @@ export class TemplateRegistry {
   }
   
   /**
-   * Convert an object to YAML frontmatter
-   * @param data The data to convert to YAML
+   * Convert data to YAML format without using YAML libraries
+   * @param data The data to convert
    * @returns A YAML string representation of the data
    */
   async convertToYaml(data: Record<string, any>): Promise<string> {
-    return yaml.dump(data, {
-      lineWidth: -1, // Don't wrap lines
-      noRefs: true,  // Don't use references
-      quotingType: '"' // Use double quotes
-    });
+    // Use the formatFrontmatter function which manually constructs YAML
+    // This ensures consistent formatting without relying on YAML libraries
+    return formatFrontmatter(data);
   }
   
   /**
-   * Apply a template to generate frontmatter for a file
+   * Apply a template to a file
    * @param filePath The path to the file
-   * @returns A string containing the generated frontmatter or empty string if no template matches
+   * @returns The template content
    */
   async applyTemplate(filePath: string): Promise<string> {
     const template = this.findTemplate(filePath);
@@ -153,7 +165,7 @@ export class TemplateRegistry {
     
     console.log(`Applying template ${template.id} to ${filePath}`);
     const defaults = this.generateDefaults(template, filePath);
-    const yaml = await this.convertToYaml(defaults);
+    const yaml = formatFrontmatter(defaults);
     return `---\n${yaml}---\n\n`;
   }
   

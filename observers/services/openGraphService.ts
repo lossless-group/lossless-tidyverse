@@ -13,10 +13,11 @@
  * - Maintains statistics for reporting
  */
 
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import fetch from 'node-fetch';
 import * as dotenv from 'dotenv';
-import * as fs from 'fs/promises';
-import * as yaml from 'js-yaml';
+import { formatFrontmatter } from '../fileSystemObserver';
 
 // Load environment variables
 dotenv.config();
@@ -153,43 +154,8 @@ function fetchScreenshotUrlInBackground(url: string, filePath: string): void {
       if (screenshotUrl) {
         console.log(`✅ Received screenshot URL for ${url} in background process: ${screenshotUrl}`);
         
-        // Read the file content
-        const content = await fs.readFile(filePath, 'utf8');
-        
-        // Check if content has frontmatter
-        if (!content.startsWith('---')) {
-          console.log(`No frontmatter found in ${filePath}, cannot update screenshot URL`);
-          return;
-        }
-        
-        // Find the end of frontmatter
-        const endIndex = content.indexOf('---', 3);
-        if (endIndex === -1) {
-          console.log(`Invalid frontmatter format in ${filePath}, cannot update screenshot URL`);
-          return;
-        }
-        
-        // Extract frontmatter content
-        const frontmatterContent = content.substring(3, endIndex).trim();
-        
-        try {
-          // Parse YAML frontmatter
-          const frontmatter = yaml.load(frontmatterContent) as Record<string, any>;
-          
-          // Update frontmatter with screenshot URL
-          frontmatter.og_screenshot_url = screenshotUrl;
-          
-          // Format the updated frontmatter
-          let yamlContent = yaml.dump(frontmatter);
-          
-          // Insert updated frontmatter back into the file
-          const newContent = `---\n${yamlContent}---\n\n${content.substring(endIndex + 3).trimStart()}`;
-          await fs.writeFile(filePath, newContent, 'utf8');
-          
-          console.log(`Updated ${filePath} with screenshot URL in background process`);
-        } catch (error) {
-          console.error(`Error parsing frontmatter in ${filePath}:`, error);
-        }
+        // Update the file with the screenshot URL
+        await updateFileWithScreenshotUrl(filePath, screenshotUrl);
       } else {
         console.log(`⚠️ No screenshot URL found for ${url} in background process`);
       }
@@ -200,6 +166,150 @@ function fetchScreenshotUrlInBackground(url: string, filePath: string): void {
       screenshotFetchInProgress.delete(url);
     }
   })();
+}
+
+/**
+ * Extract frontmatter from markdown content using regex only - no YAML libraries
+ * @param content The markdown content
+ * @returns The extracted frontmatter as an object, or null if no frontmatter is found
+ */
+function extractFrontmatterForOpenGraph(content: string): {frontmatter: Record<string, any> | null, startIndex: number, endIndex: number} {
+  // Check if content has frontmatter (starts with ---)
+  if (!content.startsWith('---')) {
+    return { frontmatter: null, startIndex: 0, endIndex: 0 };
+  }
+  
+  // Find the end of frontmatter
+  const endIndex = content.indexOf('---', 3);
+  if (endIndex === -1) {
+    return { frontmatter: null, startIndex: 0, endIndex: 0 };
+  }
+  
+  // Extract frontmatter content
+  const frontmatterContent = content.substring(3, endIndex).trim();
+  
+  try {
+    // Parse frontmatter using regex, not YAML library
+    const frontmatter: Record<string, any> = {};
+    
+    // Split by lines and process each line
+    const lines = frontmatterContent.split('\n');
+    
+    // Track current array property being processed
+    let currentArrayProperty: string | null = null;
+    let arrayValues: any[] = [];
+    
+    for (let line of lines) {
+      line = line.trim();
+      if (!line) continue;
+      
+      // Check if this is an array item
+      if (line.startsWith('- ') && currentArrayProperty) {
+        // Add to current array
+        arrayValues.push(line.substring(2).trim());
+        continue;
+      }
+      
+      // If we were processing an array and now hit a new property, save the array
+      if (currentArrayProperty && !line.startsWith('- ')) {
+        frontmatter[currentArrayProperty] = arrayValues;
+        currentArrayProperty = null;
+        arrayValues = [];
+      }
+      
+      // Check for key-value pair
+      const colonIndex = line.indexOf(':');
+      if (colonIndex > 0) {
+        const key = line.substring(0, colonIndex).trim();
+        let value = line.substring(colonIndex + 1).trim();
+        
+        // Check if this is the start of an array
+        if (!value) {
+          currentArrayProperty = key;
+          arrayValues = [];
+          continue;
+        }
+        
+        // Handle different value types
+        if (value === 'null' || value === '') {
+          frontmatter[key] = null;
+        } else if (value === 'true') {
+          frontmatter[key] = true;
+        } else if (value === 'false') {
+          frontmatter[key] = false;
+        } else if (!isNaN(Number(value)) && !value.startsWith('0')) {
+          // Only convert to number if it doesn't start with 0 (to preserve things like versions)
+          frontmatter[key] = value.includes('.') ? parseFloat(value) : parseInt(value);
+        } else {
+          // Remove quotes if present
+          if ((value.startsWith('"') && value.endsWith('"')) || 
+              (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.substring(1, value.length - 1);
+          }
+          frontmatter[key] = value;
+        }
+      }
+    }
+    
+    // Handle any remaining array
+    if (currentArrayProperty) {
+      frontmatter[currentArrayProperty] = arrayValues;
+    }
+    
+    return { 
+      frontmatter: frontmatter,
+      startIndex: 0,
+      endIndex: endIndex + 3
+    };
+  } catch (error) {
+    console.error('Error parsing frontmatter:', error);
+    return { frontmatter: null, startIndex: 0, endIndex: 0 };
+  }
+}
+
+/**
+ * Updates a file with a screenshot URL in the background
+ * @param filePath The path to the file
+ * @param screenshotUrl The URL of the screenshot
+ */
+async function updateFileWithScreenshotUrl(filePath: string, screenshotUrl: string): Promise<void> {
+  try {
+    // Read file content
+    const content = await fs.readFile(filePath, 'utf8');
+    
+    // Check if file has frontmatter
+    if (content.startsWith('---')) {
+      // Find the end of frontmatter
+      const endIndex = content.indexOf('---', 3);
+      if (endIndex !== -1) {
+        // Extract frontmatter content
+        const frontmatterContent = content.substring(3, endIndex).trim();
+        
+        try {
+          // Parse frontmatter using our custom function
+          const { frontmatter } = extractFrontmatterForOpenGraph(content);
+          
+          if (frontmatter) {
+            // Update frontmatter with screenshot URL
+            frontmatter.og_screenshot_url = screenshotUrl;
+            
+            // Format the updated frontmatter using our custom formatter
+            const formattedFrontmatter = formatFrontmatter(frontmatter);
+            
+            // Insert updated frontmatter back into the file
+            const newContent = `---\n${formattedFrontmatter}---\n\n${content.substring(endIndex + 3).trimStart()}`;
+            await fs.writeFile(filePath, newContent, 'utf8');
+            
+            console.log(`Updated ${filePath} with screenshot URL in background process`);
+          }
+        } catch (error) {
+          console.error(`Error updating file ${filePath} with screenshot URL:`, error);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`Error reading file ${filePath}:`, error);
+  }
 }
 
 /**
