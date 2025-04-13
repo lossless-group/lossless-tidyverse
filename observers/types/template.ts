@@ -13,7 +13,7 @@ export interface TemplateField {
   description: string;
   validation?: (value: any) => boolean;
   defaultValue?: any;
-  defaultValueFn?: (filePath: string) => any;
+  defaultValueFn?: (filePath: string, frontmatter?: Record<string, any>) => any;
 }
 
 /**

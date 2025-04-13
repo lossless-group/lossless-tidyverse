@@ -13,7 +13,7 @@ import promptsTemplate from '../templates/prompts';
 import vocabularyTemplate from '../templates/vocabulary';
 import toolingTemplate from '../templates/tooling';
 import specificationsTemplate from '../templates/specifications';
-import { formatFrontmatter } from '../../../site_archive/fileSystemObserver';
+import { formatFrontmatter } from '../utils/yamlFrontmatter';
 
 /**
  * Service for managing metadata templates and validating frontmatter
@@ -347,5 +347,52 @@ export class TemplateRegistry {
   getAllTemplates(): MetadataTemplate[] {
     // Convert the Map values to an array
     return Array.from(this.templates.values());
+  }
+
+  /**
+   * Check if a file path matches a specific template
+   * @param filePath The path to the file
+   * @param templateId The ID of the template to check
+   * @returns True if the file matches the template, false otherwise
+   */
+  doesFileMatchTemplate(filePath: string, templateId: string): boolean {
+    // Normalize path for matching
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    
+    // Get the template by ID
+    const template = this.templates.get(templateId);
+    if (!template) {
+      console.log(`Template with ID ${templateId} not found`);
+      return false;
+    }
+    
+    // Check directory patterns
+    if (template.appliesTo.directories) {
+      for (const pattern of template.appliesTo.directories) {
+        // For absolute paths, check if they contain the pattern
+        if (normalizedPath.includes(pattern)) {
+          console.log(`File ${normalizedPath} matches template ${templateId} with pattern ${pattern}`);
+          return true;
+        }
+        
+        // Also try the direct minimatch for relative paths
+        if (minimatch(normalizedPath, pattern)) {
+          console.log(`File ${normalizedPath} matches template ${templateId} with pattern ${pattern}`);
+          return true;
+        }
+      }
+    }
+    
+    // Check file patterns
+    if (template.appliesTo.filePatterns) {
+      for (const pattern of template.appliesTo.filePatterns) {
+        if (minimatch(path.basename(normalizedPath), pattern)) {
+          console.log(`File ${normalizedPath} matches template ${templateId} with file pattern ${pattern}`);
+          return true;
+        }
+      }
+    }
+    
+    return false;
   }
 }

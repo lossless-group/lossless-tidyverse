@@ -5,7 +5,7 @@
  * and watches the prompts directory for changes.
  */
 
-import { FileSystemObserver } from '../../../site_archive/fileSystemObserver';
+import { FileSystemObserver } from '../fileSystemObserver';
 import { TemplateRegistry } from '../services/templateRegistry';
 import { ReportingService } from '../services/reportingService';
 import * as path from 'path';

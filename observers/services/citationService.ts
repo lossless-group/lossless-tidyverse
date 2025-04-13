@@ -7,7 +7,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { formatFrontmatter } from '../../../site_archive/fileSystemObserver';
 
 /**
  * Configuration for citation processing
@@ -188,115 +187,6 @@ export class CitationRegistry {
 }
 
 /**
- * Extract frontmatter and body from a markdown file using regex
- * @param content The content of the markdown file
- * @returns The frontmatter and body
- */
-function extractFrontmatterAndBody(content: string): { frontmatter: Record<string, any>; body: string } | null {
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
-  
-  if (!frontmatterMatch) {
-    return null;
-  }
-  
-  try {
-    const frontmatterStr = frontmatterMatch[1];
-    const body = frontmatterMatch[2];
-    
-    // Parse frontmatter using regex, not YAML library
-    const frontmatter: Record<string, any> = {};
-    
-    // Split by lines and process each line
-    const lines = frontmatterStr.split('\n');
-    
-    // Track current array property being processed
-    let currentArrayProperty: string | null = null;
-    let arrayValues: any[] = [];
-    
-    for (let line of lines) {
-      line = line.trim();
-      if (!line) continue;
-      
-      // Check if this is an array item
-      if (line.startsWith('- ') && currentArrayProperty) {
-        // Add to current array
-        arrayValues.push(line.substring(2).trim());
-        continue;
-      }
-      
-      // If we were processing an array and now hit a new property, save the array
-      if (currentArrayProperty && !line.startsWith('- ')) {
-        frontmatter[currentArrayProperty] = arrayValues;
-        currentArrayProperty = null;
-        arrayValues = [];
-      }
-      
-      // Check for key-value pair
-      const colonIndex = line.indexOf(':');
-      if (colonIndex > 0) {
-        const key = line.substring(0, colonIndex).trim();
-        let value = line.substring(colonIndex + 1).trim();
-        
-        // Check if this is the start of an array
-        if (!value) {
-          currentArrayProperty = key;
-          arrayValues = [];
-          continue;
-        }
-        
-        // Handle different value types
-        if (value === 'null' || value === '') {
-          frontmatter[key] = null;
-        } else if (value === 'true') {
-          frontmatter[key] = true;
-        } else if (value === 'false') {
-          frontmatter[key] = false;
-        } else if (!isNaN(Number(value)) && !value.startsWith('0')) {
-          // Only convert to number if it doesn't start with 0 (to preserve things like versions)
-          frontmatter[key] = value.includes('.') ? parseFloat(value) : parseInt(value);
-        } else {
-          // Remove quotes if present
-          if ((value.startsWith('"') && value.endsWith('"')) || 
-              (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.substring(1, value.length - 1);
-          }
-          frontmatter[key] = value;
-        }
-      }
-    }
-    
-    // Handle any remaining array
-    if (currentArrayProperty) {
-      frontmatter[currentArrayProperty] = arrayValues;
-    }
-    
-    return {
-      frontmatter,
-      body
-    };
-  } catch (error) {
-    console.error('Error parsing frontmatter:', error);
-    return null;
-  }
-}
-
-/**
- * Combine frontmatter and body into a markdown file
- * @param frontmatter The frontmatter
- * @param body The body
- * @returns The combined content
- */
-function combineFrontmatterAndBody(frontmatter: Record<string, any>, body: string): string {
-  if (!frontmatter) {
-    return body;
-  }
-  
-  // Use our custom formatFrontmatter function to generate YAML
-  const frontmatterStr = formatFrontmatter(frontmatter);
-  return `---\n${frontmatterStr}---\n\n${body}`;
-}
-
-/**
  * Generate a random hex ID of specified length
  * @param length - Length of the hex ID
  * @returns Random hex string
@@ -311,11 +201,13 @@ function generateHexId(length: number = 6): string {
  * Detects and converts numeric citations to hex format using efficient data structures
  * @param content - The markdown file content
  * @param registry - The citation registry instance
+ * @param filePath - The path to the file being processed
  * @returns Object containing updated content and conversion statistics
  */
 function convertNumericCitationsToHex(
   content: string,
-  registry: CitationRegistry
+  registry: CitationRegistry,
+  filePath: string
 ): {
   updatedContent: string;
   stats: {
@@ -443,7 +335,8 @@ function convertNumericCitationsToHex(
     
     // Add or update the citation in the registry
     registry.addCitation(hexId, {
-      sourceText: citationText
+      sourceText: citationText,
+      files: [filePath]
     });
   });
   
@@ -656,18 +549,32 @@ function extractCodeBlocks(content: string): {
   let processableContent = content;
   
   // Extract fenced code blocks (```...```)
-  const fencedCodeBlockRegex = /```[\s\S]*?```/g;
+  // Use a more robust regex that handles backticks within code blocks
+  // This regex matches code blocks with language specifiers and without
+  const fencedCodeBlockRegex = /^([ \t]*)```(?:[a-zA-Z0-9_+-]*)\n([\s\S]*?)^[ \t]*```/gm;
   let match;
   let index = 0;
   
   while ((match = fencedCodeBlockRegex.exec(content)) !== null) {
     const placeholder = `__CODE_BLOCK_${index}__`;
+    const originalBlock = match[0];
+    
     codeBlocks.push({
       placeholder,
-      original: match[0]
+      original: originalBlock
     });
     
-    processableContent = processableContent.replace(match[0], placeholder);
+    // Use a more precise replacement to avoid replacing identical blocks incorrectly
+    // Calculate the exact position of this match and replace only at that position
+    const matchStart = match.index;
+    const matchEnd = matchStart + originalBlock.length;
+    const before = processableContent.substring(0, matchStart);
+    const after = processableContent.substring(matchEnd);
+    processableContent = before + placeholder + after;
+    
+    // Reset regex lastIndex to account for the replacement
+    fencedCodeBlockRegex.lastIndex = before.length + placeholder.length;
+    
     index++;
   }
   
@@ -677,6 +584,7 @@ function extractCodeBlocks(content: string): {
   let inIndentedBlock = false;
   let currentBlock = '';
   let startLine = 0;
+  let blockStartIndex = 0;
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -685,6 +593,7 @@ function extractCodeBlocks(content: string): {
     if (isIndented && (!inIndentedBlock || (inIndentedBlock && i === startLine + 1))) {
       if (!inIndentedBlock) {
         startLine = i;
+        blockStartIndex = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0); // +1 for newline
         currentBlock = line;
         inIndentedBlock = true;
       } else {
@@ -700,7 +609,12 @@ function extractCodeBlocks(content: string): {
         original: currentBlock
       });
       
-      processableContent = processableContent.replace(currentBlock, placeholder);
+      // Use precise replacement
+      const blockEndIndex = blockStartIndex + currentBlock.length;
+      const before = processableContent.substring(0, blockStartIndex);
+      const after = processableContent.substring(blockEndIndex);
+      processableContent = before + placeholder + after;
+      
       inIndentedBlock = false;
       currentBlock = '';
       index++;
@@ -715,7 +629,11 @@ function extractCodeBlocks(content: string): {
       original: currentBlock
     });
     
-    processableContent = processableContent.replace(currentBlock, placeholder);
+    // Use precise replacement
+    const blockEndIndex = blockStartIndex + currentBlock.length;
+    const before = processableContent.substring(0, blockStartIndex);
+    const after = processableContent.substring(blockEndIndex);
+    processableContent = before + placeholder + after;
   }
   
   return { processableContent, codeBlocks };
@@ -734,18 +652,30 @@ function extractInlineCode(content: string): {
   let processableContent = content;
   
   // Extract inline code (`...`)
-  const inlineCodeRegex = /`[^`]+`/g;
+  // Use a more robust regex that handles inline code better
+  const inlineCodeRegex = /`([^`]+)`/g;
   let match;
   let index = 0;
   
   while ((match = inlineCodeRegex.exec(content)) !== null) {
     const placeholder = `__INLINE_CODE_${index}__`;
+    const originalCode = match[0];
+    
     inlineCode.push({
       placeholder,
-      original: match[0]
+      original: originalCode
     });
     
-    processableContent = processableContent.replace(match[0], placeholder);
+    // Use precise replacement to avoid replacing identical inline code incorrectly
+    const matchStart = match.index;
+    const matchEnd = matchStart + originalCode.length;
+    const before = processableContent.substring(0, matchStart);
+    const after = processableContent.substring(matchEnd);
+    processableContent = before + placeholder + after;
+    
+    // Reset regex lastIndex to account for the replacement
+    inlineCodeRegex.lastIndex = before.length + placeholder.length;
+    
     index++;
   }
   
@@ -778,25 +708,8 @@ export async function processCitations(
   // Load existing registry
   await citationRegistry.loadFromDisk();
   
-  // Extract frontmatter and body
-  const frontmatterAndBody = extractFrontmatterAndBody(content);
-  
-  if (!frontmatterAndBody) {
-    return {
-      updatedContent: content,
-      changed: false,
-      stats: {
-        citationsConverted: 0,
-        footnotesAdded: 0,
-        footnoteSectionAdded: false
-      }
-    };
-  }
-  
-  const { frontmatter, body } = frontmatterAndBody;
-  
   // Extract code blocks and replace with placeholders
-  const { processableContent: bodyWithoutCodeBlocks, codeBlocks } = extractCodeBlocks(body);
+  const { processableContent: bodyWithoutCodeBlocks, codeBlocks } = extractCodeBlocks(content);
   
   // Extract inline code and replace with placeholders
   const { processableContent: processableBody, inlineCode } = extractInlineCode(bodyWithoutCodeBlocks);
@@ -811,7 +724,7 @@ export async function processCitations(
   
   // Step 3: Convert numeric citations to hex
   const { updatedContent: bodyWithHexCitations, stats: conversionStats } = 
-    convertNumericCitationsToHex(bodyWithCarets, citationRegistry);
+    convertNumericCitationsToHex(bodyWithCarets, citationRegistry, filePath);
   
   // Step 4: Ensure all citations have footnote definitions
   const { updatedContent: bodyWithFootnotes, footnotesAdded } = 
@@ -860,29 +773,12 @@ export async function processCitations(
     restoredContent = restoredContent.replace(placeholder, original);
   }
   
-  // Update frontmatter with citation information
-  const updatedFrontmatter = {
-    ...frontmatter,
-  };
-  
-  // Only update date_modified if actual content changes were made
-  const contentChanged = restoredContent !== body;
-  if (contentChanged) {
-    updatedFrontmatter.date_modified = new Date().toISOString().split('T')[0];
-  }
-  
-  // Combine frontmatter and body
-  const finalContent = combineFrontmatterAndBody(
-    updatedFrontmatter, 
-    restoredContent
-  );
-  
   // Save citation registry
   await citationRegistry.saveToDisk();
   
   return {
-    updatedContent: finalContent,
-    changed: finalContent !== content,
+    updatedContent: restoredContent,
+    changed: restoredContent !== content,
     stats: {
       citationsConverted: conversionStats.conversionsPerformed,
       footnotesAdded,

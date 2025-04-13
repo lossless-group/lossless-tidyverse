@@ -17,7 +17,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import fetch from 'node-fetch';
 import * as dotenv from 'dotenv';
-import { formatFrontmatter } from '../../../site_archive/fileSystemObserver';
+import { formatFrontmatter } from '../utils/yamlFrontmatter';
 
 // Load environment variables
 dotenv.config();

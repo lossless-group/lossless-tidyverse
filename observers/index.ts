@@ -10,7 +10,7 @@
 
 import * as path from 'path';
 import * as dotenv from 'dotenv';
-import { FileSystemObserver } from '../../site_archive/fileSystemObserver';
+import { FileSystemObserver } from './fileSystemObserver';
 import { TemplateRegistry } from './services/templateRegistry';
 import { ReportingService } from './services/reportingService';
 

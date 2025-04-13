@@ -16,8 +16,8 @@ import { ReportingService } from './services/reportingService';
 import { MetadataTemplate } from './types/template';
 import { processOpenGraphMetadata } from './services/openGraphService';
 import { processCitations } from './services/citationService';
-import { formatDate } from './utils/commonUtils';
-import { formatFrontmatter, extractFrontmatter, updateFrontmatter } from './utils/yamlFormatter';
+import { formatDate } from './utils/commonUtils'; // Import the formatDate utility
+import { formatFrontmatter, extractFrontmatter, updateFrontmatter } from './utils/yamlFrontmatter';
 
 /**
  * Converts a string to Train-Case (first letter of each word capitalized, joined with hyphens)
@@ -135,12 +135,12 @@ export class FileSystemObserver {
   private templateRegistry: TemplateRegistry;
   private reportingService: ReportingService;
   private contentRoot: string;
-  private processingFiles: Set<string> = new Set();
-  private recentlyModifiedByObserver: Set<string> = new Set();
-  private modificationCooldownPeriod: number = 5000; // 5 seconds
-  private initialProcessingComplete: boolean = false;
+  private processingFiles = new Set<string>();
+  private recentlyModifiedByObserver = new Set<string>();
+  private modificationCooldownPeriod = 5000; // 5 seconds
+  private initialProcessingComplete = false;
   private processedFilesInInitialPhase: Set<string> | null = null;
-  private reportGenerationInterval: NodeJS.Timeout | null = null;
+  private initialProcessingTimeout: NodeJS.Timeout | null = null;
   
   /**
    * Create a new FileSystemObserver
@@ -159,15 +159,26 @@ export class FileSystemObserver {
       initialProcessingDelay?: number; // Delay in ms before switching to regular observer mode
     } = {}
   ) {
+    console.log(`Creating FileSystemObserver for ${contentRoot}`);
+    
     this.templateRegistry = templateRegistry;
     this.reportingService = reportingService;
     this.contentRoot = contentRoot;
     
-    // Create a new watcher
-    this.watcher = chokidar.watch([], {
-      ignored: /(^|[\/\\])\../, // Ignore dotfiles
+    // Set default options
+    this.options.ignoreInitial = this.options.ignoreInitial ?? false;
+    this.options.processExistingFiles = this.options.processExistingFiles ?? true;
+    this.options.initialProcessingDelay = this.options.initialProcessingDelay ?? 90000; // Default 90 seconds
+    
+    // Set up the watcher with multiple directories
+    this.watcher = chokidar.watch([
+      path.join(contentRoot, 'tooling'),
+      path.join(contentRoot, 'vocabulary'),
+      path.join(contentRoot, 'lost-in-public/prompts'),
+      path.join(contentRoot, 'specs')
+    ], {
       persistent: true,
-      ignoreInitial: options.ignoreInitial !== undefined ? options.ignoreInitial : true,
+      ignoreInitial: this.options.ignoreInitial,
       awaitWriteFinish: {
         stabilityThreshold: 2000,
         pollInterval: 100
@@ -177,22 +188,28 @@ export class FileSystemObserver {
     // Set up event handlers
     this.setupEventHandlers();
     
-    // Set up periodic report generation
+    // Set up report generation
     this.setupReportGeneration();
     
-    // Set up initial processing if requested
-    if (options.processExistingFiles) {
-      this.processExistingFiles();
-    }
-    
-    // Set up a timer to mark initial processing as complete after a delay
-    if (options.initialProcessingDelay) {
-      setTimeout(() => {
-        console.log('Initial processing phase complete, switching to regular observer mode');
+    // Set up initial processing timeout
+    if (this.options.processExistingFiles) {
+      console.log(`Initial processing mode active. Will switch to regular observer mode after ${this.options.initialProcessingDelay / 1000} seconds.`);
+      this.initialProcessingTimeout = setTimeout(() => {
+        console.log('Switching to regular observer mode...');
         this.initialProcessingComplete = true;
-        this.processedFilesInInitialPhase = null; // Free up memory
-      }, options.initialProcessingDelay);
+        
+        // Clear the processed files set when switching to regular mode
+        if (this.processedFilesInInitialPhase) {
+          console.log(`Clearing initial processing phase cache (${this.processedFilesInInitialPhase.size} files)`);
+          this.processedFilesInInitialPhase.clear();
+          this.processedFilesInInitialPhase = null;
+        }
+        
+        // Generate a report after initial processing
+        this.reportingService.generateReport();
+      }, this.options.initialProcessingDelay);
     } else {
+      // If not processing existing files, mark as complete immediately
       this.initialProcessingComplete = true;
     }
   }
@@ -200,105 +217,101 @@ export class FileSystemObserver {
   /**
    * Set up event handlers for file system events
    */
-  private setupEventHandlers(): void {
-    // Handle new files
+  setupEventHandlers(): void {
+    // On new file
     this.watcher.on('add', (filePath) => {
       this.onNewFile(filePath);
     });
     
-    // Handle file changes
+    // On file change
     this.watcher.on('change', (filePath) => {
       this.onFileChanged(filePath);
     });
     
-    // Handle errors
+    // On error
     this.watcher.on('error', (error) => {
       console.error('Error in file watcher:', error);
     });
     
-    // Handle ready event
+    // On ready
     this.watcher.on('ready', () => {
-      console.log('Initial scan complete. Ready for changes');
+      console.log('Initial scan complete. Ready for changes.');
     });
   }
   
   /**
    * Set up periodic report generation
    */
-  private setupReportGeneration(): void {
-    // Generate a report every 5 minutes
-    this.reportGenerationInterval = setInterval(async () => {
-      // Only generate a report if there are processed files
-      if (this.reportingService.hasProcessedFiles()) {
-        console.log('Generating periodic report...');
-        const reportPath = await this.reportingService.writeReport();
-        if (reportPath) {
-          console.log(`Report written to ${reportPath}`);
-        }
-      }
-    }, 5 * 60 * 1000); // 5 minutes
+  setupReportGeneration(): void {
+    // Generate a report every hour
+    setInterval(() => {
+      console.log('Generating periodic report...');
+      this.reportingService.generateReport();
+    }, 60 * 60 * 1000); // 1 hour
     
-    // Generate a final report when the process exits
-    process.on('SIGINT', async () => {
-      console.log('Received SIGINT, generating final report...');
+    // Also set up a handler for process termination to generate a final report
+    process.on('SIGINT', () => {
+      console.log('Process terminating, generating final report...');
+      this.reportingService.generateReport();
       
-      // Clear the interval to prevent duplicate reports
-      if (this.reportGenerationInterval) {
-        clearInterval(this.reportGenerationInterval);
-      }
+      // Exit after a short delay to allow the report to be written
+      setTimeout(() => {
+        process.exit(0);
+      }, 1000);
+    });
+    
+    // Handle SIGTERM as well
+    process.on('SIGTERM', () => {
+      console.log('Process terminated, generating final report...');
+      this.reportingService.generateReport();
       
-      // Generate a final report
-      const reportPath = await this.reportingService.writeReport();
-      if (reportPath) {
-        console.log(`Final report written to ${reportPath}`);
-      }
-      
-      // Exit the process
-      process.exit(0);
+      // Exit after a short delay to allow the report to be written
+      setTimeout(() => {
+        process.exit(0);
+      }, 1000);
     });
   }
   
   /**
    * Process existing files in the content root
    */
-  private async processExistingFiles(): Promise<void> {
+  async processExistingFiles(): Promise<void> {
     console.log(`Processing existing files in ${this.contentRoot}...`);
     
-    // Get all templates
-    const templates = this.templateRegistry.getAllTemplates();
+    // Create a new set to track processed files
+    this.processedFilesInInitialPhase = new Set<string>();
     
-    // Process each template
-    for (const template of templates) {
-      // Skip templates without directories
-      if (!template.appliesTo.directories || template.appliesTo.directories.length === 0) {
-        continue;
-      }
-      
-      // Process each directory
-      for (const directory of template.appliesTo.directories) {
-        const directoryPath = path.join(this.contentRoot, directory);
+    // Process all markdown files in the content root
+    const directories = [
+      path.join(this.contentRoot, 'tooling'),
+      path.join(this.contentRoot, 'vocabulary'),
+      path.join(this.contentRoot, 'lost-in-public/prompts'),
+      path.join(this.contentRoot, 'specs')
+    ];
+    
+    for (const directory of directories) {
+      try {
+        // Check if the directory exists
+        await fs.access(directory);
         
-        try {
-          // Get all markdown files in the directory
-          const files = await fs.readdir(directoryPath, { recursive: true });
+        // Get all markdown files in the directory
+        const files = await fs.readdir(directory, { recursive: true });
+        
+        for (const file of files) {
+          const filePath = path.join(directory, file.toString());
           
-          // Process each file
-          for (const file of files) {
-            const filePath = path.join(directoryPath, file);
-            
-            // Skip non-markdown files
-            if (!filePath.endsWith('.md')) {
-              continue;
-            }
-            
+          // Only process markdown files
+          if (filePath.endsWith('.md')) {
             // Process the file
             await this.onFileChanged(filePath);
           }
-        } catch (error) {
-          console.error(`Error processing directory ${directoryPath}:`, error);
         }
+      } catch (error) {
+        console.error(`Error processing existing files in ${directory}:`, error);
       }
     }
+    
+    console.log(`Processed ${this.processedFilesInInitialPhase.size} existing files.`);
   }
   
   /**
@@ -307,11 +320,27 @@ export class FileSystemObserver {
    */
   async processCitationsInFile(filePath: string): Promise<void> {
     try {
+      // Find the appropriate template for this file
+      const template = this.templateRegistry.findTemplate(filePath);
+      
+      // If no template is found or it doesn't have citation config, skip processing
+      if (!template || !template.citationConfig) {
+        console.log(`No citation template found for ${filePath}, skipping citation processing`);
+        return;
+      }
+      
+      // Check if the file path matches the directories in the template's appliesTo.directories array
+      const shouldProcessCitations = this.templateRegistry.doesFileMatchTemplate(filePath, template.id);
+      if (!shouldProcessCitations) {
+        console.log(`Skipping citation processing for ${filePath} - not in the directories specified in the template`);
+        return;
+      }
+      
       // Read the file content
       const content = await fs.readFile(filePath, 'utf8');
       
       // Process citations
-      const { updatedContent, changed, stats } = await processCitations(content, filePath);
+      const { updatedContent, changed, stats } = await processCitations(content, filePath, template.citationConfig);
       
       // If citations were changed, update the file
       if (changed) {
@@ -357,114 +386,114 @@ export class FileSystemObserver {
       // Mark file as being processed
       this.processingFiles.add(filePath);
       
-      // Find the appropriate template for this file
-      const template = this.templateRegistry.findTemplate(filePath);
-      
-      // If no template is found, skip processing
-      if (!template) {
-        console.log(`No template found for ${filePath}, skipping processing`);
-        this.processingFiles.delete(filePath);
-        return;
-      }
-      
-      // Only process citations if the template has citation configuration
-      if (template.citationConfig) {
-        console.log(`Processing citations for ${filePath} using template ${template.id}`);
-        await this.processCitationsInFile(filePath);
-      } else {
-        console.log(`Skipping citation processing for ${filePath} - template ${template.id} does not have citation config`);
-      }
+      console.log(`New file detected: ${filePath}`);
       
       try {
         // Read the file content
         const content = await fs.readFile(filePath, 'utf8');
         
-        // Extract frontmatter from the content
-        const frontmatter = extractFrontmatter(content);
-        
-        if (frontmatter) {
-          console.log(`Frontmatter found in new file ${filePath}, validating...`);
+        // Check if the file already has frontmatter
+        if (content.startsWith('---')) {
+          console.log(`File ${filePath} already has frontmatter, validating...`);
           
-          // Add missing required fields
-          let { updatedFrontmatter, changed } = await addMissingRequiredFields(
-            frontmatter,
-            template,
-            filePath,
-            this.reportingService
-          );
+          // Extract frontmatter
+          const frontmatter = extractFrontmatter(content);
           
-          // Validate against template
-          const validationResult = this.templateRegistry.validate(filePath, updatedFrontmatter);
-          
-          if (!validationResult.valid) {
-            reportValidationErrors(filePath, validationResult, this.reportingService);
+          if (frontmatter) {
+            // Find the appropriate template
+            const template = this.templateRegistry.findTemplate(filePath);
             
-            // Apply validation fixes if available
-            if (validationResult.suggestedFixes && Object.keys(validationResult.suggestedFixes).length > 0) {
-              console.log(`Applying suggested fixes for ${filePath}:`, validationResult.suggestedFixes);
-              
-              // Merge the suggested fixes with the updated frontmatter
-              Object.assign(updatedFrontmatter, validationResult.suggestedFixes);
-              
-              // Mark as changed so it will be written to the file
-              changed = true;
+            if (!template) {
+              console.log(`No template found for ${filePath}`);
+              return;
             }
-          }
-          
-          // Check if date_modified is the only field that would change
-          let onlyDateModifiedChanged = false;
-          if (changed && frontmatter) {
-            const changedFields = Object.keys(updatedFrontmatter).filter(key => 
-              JSON.stringify(updatedFrontmatter[key]) !== JSON.stringify(frontmatter[key])
+            
+            // Check for missing required fields
+            const { updatedFrontmatter, changed } = await addMissingRequiredFields(
+              frontmatter,
+              template,
+              filePath,
+              this.reportingService
             );
             
-            if (changedFields.length === 1 && changedFields[0] === 'date_modified') {
-              console.log(`Only date_modified would change in ${filePath}, skipping update to prevent unnecessary modifications`);
-              onlyDateModifiedChanged = true;
+            // Log what fields were added
+            if (changed) {
+              console.log(`Added missing required fields to ${filePath}:`);
+              for (const key of Object.keys(updatedFrontmatter)) {
+                if (frontmatter[key] === undefined && updatedFrontmatter[key] !== undefined) {
+                  console.log(`  - Added ${key}: ${updatedFrontmatter[key]}`);
+                }
+              }
               
-              // During initial processing, skip updating files just for date_modified
-              if (!this.initialProcessingComplete) {
-                console.log(`Skipping date_modified update during initial processing phase for ${filePath}`);
-              } else {
-                // After initial processing, check if this is a user-modified file
-                const lastModified = (await fs.stat(filePath)).mtime.getTime();
-                const currentTime = Date.now();
-                const timeSinceModification = currentTime - lastModified;
-                
-                // If the file was modified recently (within 60 seconds) and we're in regular observer mode,
-                // it's likely a user update, so we should update date_modified
-                if (timeSinceModification < 60000) {
-                  console.log(`File ${filePath} was recently modified by user, updating date_modified`);
-                  onlyDateModifiedChanged = false; // Allow the update to proceed
+              // Update the file with the new frontmatter
+              const updatedContent = updateFrontmatter(content, updatedFrontmatter);
+              await fs.writeFile(filePath, updatedContent, 'utf8');
+              console.log(`Updated frontmatter in ${filePath}`);
+              
+              // Add to recently modified set and set a timeout to remove it
+              this.recentlyModifiedByObserver.add(filePath);
+              setTimeout(() => {
+                this.recentlyModifiedByObserver.delete(filePath);
+              }, this.modificationCooldownPeriod);
+            }
+          }
+        } else {
+          // If no frontmatter, try to add it
+          console.log(`File ${filePath} has no frontmatter, adding...`);
+          
+          // Find the appropriate template
+          const template = this.templateRegistry.findTemplate(filePath);
+          
+          if (template) {
+            // Generate frontmatter from template
+            const frontmatterToUse = {};
+            
+            // Add required fields
+            if (template.required) {
+              for (const [key, field] of Object.entries(template.required)) {
+                try {
+                  // If there's a defaultValueFn, use it to generate the value
+                  if (field.defaultValueFn) {
+                    const value = await field.defaultValueFn(filePath, frontmatterToUse);
+                    
+                    if (value !== undefined) {
+                      frontmatterToUse[key] = value;
+                      
+                      // Log the field addition to the reporting service
+                      this.reportingService.logFieldAdded(filePath, key, value);
+                      
+                      console.log(`Added required field ${key} with value ${value} to ${filePath}`);
+                    }
+                  }
+                  // Otherwise, use the default value if provided
+                  else if (field.defaultValue !== undefined) {
+                    frontmatterToUse[key] = field.defaultValue;
+                    
+                    // Log the field addition to the reporting service
+                    this.reportingService.logFieldAdded(filePath, key, field.defaultValue);
+                    
+                    console.log(`Added required field ${key} with default value ${field.defaultValue} to ${filePath}`);
+                  }
+                } catch (error) {
+                  console.error(`Error adding required field ${key} to ${filePath}:`, error);
                 }
               }
             }
-          }
-          
-          if (changed && !onlyDateModifiedChanged) {
-            console.log(`Updating frontmatter in ${filePath} to add missing fields and/or convert properties...`);
             
-            // Update the file with the new frontmatter
-            const updatedContent = updateFrontmatter(content, updatedFrontmatter);
-            await fs.writeFile(filePath, updatedContent, 'utf8');
-            console.log(`Updated frontmatter in ${filePath}`);
-          } else {
-            console.log(`No updates needed for ${filePath}`);
-          }
-        } else {
-          console.log(`File ${filePath} does not have frontmatter, generating...`);
-          
-          // Generate frontmatter for the file
-          const template = this.templateRegistry.applyTemplate(filePath);
-          if (template) {
             // Format the frontmatter
-            const formattedFrontmatter = formatFrontmatter(template);
+            const formattedFrontmatter = formatFrontmatter(frontmatterToUse);
             
             // Create the new content with frontmatter
             const newContent = `---\n${formattedFrontmatter}---\n\n${content}`;
             
             // Write the updated content back to the file
             await fs.writeFile(filePath, newContent, 'utf8');
+            
+            // Add to recently modified set and set a timeout to remove it
+            this.recentlyModifiedByObserver.add(filePath);
+            setTimeout(() => {
+              this.recentlyModifiedByObserver.delete(filePath);
+            }, this.modificationCooldownPeriod);
             
             console.log(`Added frontmatter to ${filePath}`);
           } else {
@@ -533,77 +562,88 @@ export class FileSystemObserver {
       // Mark file as being processed
       this.processingFiles.add(filePath);
       
-      // Find the appropriate template for this file
-      const template = this.templateRegistry.findTemplate(filePath);
+      // Read the file content
+      const content = await fs.readFile(filePath, 'utf8');
       
-      // If no template is found, skip processing
-      if (!template) {
-        console.log(`No template found for ${filePath}, skipping processing`);
-        this.processingFiles.delete(filePath);
-        return;
-      }
+      // Extract frontmatter from the content
+      const frontmatter = extractFrontmatter(content);
       
-      // Only process citations if the template has citation configuration
-      if (template.citationConfig) {
-        console.log(`Processing citations for ${filePath} using template ${template.id}`);
-        await this.processCitationsInFile(filePath);
-      } else {
-        console.log(`Skipping citation processing for ${filePath} - template ${template.id} does not have citation config`);
-      }
-      
-      try {
-        // Read the file content
-        const content = await fs.readFile(filePath, 'utf8');
+      if (frontmatter) {
+        console.log(`Frontmatter found in ${filePath}, checking for missing required fields...`);
         
-        // Extract frontmatter from the content
-        const frontmatter = extractFrontmatter(content);
+        // Find the appropriate template
+        const template = this.templateRegistry.findTemplate(filePath);
         
-        if (frontmatter) {
-          console.log(`Frontmatter found in ${filePath}, checking for missing required fields...`);
-          
-          // Check for missing required fields
-          console.log(`Checking required fields for ${filePath} with template ${template.id}`);
-          
-          let { updatedFrontmatter, changed } = await addMissingRequiredFields(
-            frontmatter,
-            template,
-            filePath,
-            this.reportingService
-          );
-          
-          // Log what fields were added
-          if (changed) {
-            console.log(`Added missing required fields to ${filePath}:`);
-            for (const key of Object.keys(updatedFrontmatter)) {
-              if (frontmatter[key] === undefined && updatedFrontmatter[key] !== undefined) {
-                console.log(`  - Added ${key}: ${updatedFrontmatter[key]}`);
-              }
+        if (!template) {
+          console.log(`No template found for ${filePath}`);
+          return;
+        }
+        
+        // Check for missing required fields
+        console.log(`Checking required fields for ${filePath} with template ${template.id}`);
+        console.log(`Current frontmatter:`, frontmatter);
+        
+        const { updatedFrontmatter, changed } = await addMissingRequiredFields(
+          frontmatter,
+          template,
+          filePath,
+          this.reportingService
+        );
+        
+        // Use a let variable that can be reassigned
+        let frontmatterChanged = changed;
+        
+        // Log what fields were added
+        if (frontmatterChanged) {
+          console.log(`Added missing required fields to ${filePath}:`);
+          for (const key of Object.keys(updatedFrontmatter)) {
+            if (frontmatter[key] === undefined && updatedFrontmatter[key] !== undefined) {
+              console.log(`  - Added ${key}: ${updatedFrontmatter[key]}`);
             }
-          } else {
-            console.log(`No missing required fields in ${filePath}`);
           }
+        } else {
+          console.log(`No missing required fields in ${filePath}`);
+        }
+        
+        // Validate against template
+        const validationResult = this.templateRegistry.validate(filePath, updatedFrontmatter);
+        
+        if (!validationResult.valid) {
+          reportValidationErrors(filePath, validationResult, this.reportingService);
           
-          // Validate against template
-          const validationResult = this.templateRegistry.validate(filePath, updatedFrontmatter);
-          
-          if (!validationResult.valid) {
-            reportValidationErrors(filePath, validationResult, this.reportingService);
+          // Apply validation fixes if available
+          if (validationResult.suggestedFixes && Object.keys(validationResult.suggestedFixes).length > 0) {
+            console.log(`Applying suggested fixes for ${filePath}:`, validationResult.suggestedFixes);
             
-            // Apply validation fixes if available
-            if (validationResult.suggestedFixes && Object.keys(validationResult.suggestedFixes).length > 0) {
-              console.log(`Applying suggested fixes for ${filePath}:`, validationResult.suggestedFixes);
-              
-              // Merge the suggested fixes with the updated frontmatter
-              Object.assign(updatedFrontmatter, validationResult.suggestedFixes);
-              
-              // Mark as changed so it will be written to the file
-              changed = true;
-            }
+            // Merge the suggested fixes with the updated frontmatter
+            const fixedFrontmatter = {
+              ...updatedFrontmatter,
+              ...validationResult.suggestedFixes
+            };
+            
+            // Update the frontmatter to use
+            Object.assign(updatedFrontmatter, validationResult.suggestedFixes);
+            
+            // Mark as changed so it will be written to the file
+            frontmatterChanged = true;
+            
+            console.log(`Updated frontmatter with fixes:`, updatedFrontmatter);
           }
-          
+        }
+        
+        // Only process citations if the template has citation configuration
+        if (template.citationConfig) {
+          console.log(`Processing citations for ${filePath} using template ${template.id}`);
+          await this.processCitationsInFile(filePath);
+        } else {
+          console.log(`Skipping citation processing for ${filePath} - template ${template.id} does not have citation config`);
+        }
+        
+        // If there are conversions needed or fields were added, update the file
+        if (frontmatterChanged) {
           // Check if date_modified is the only field that would change
           let onlyDateModifiedChanged = false;
-          if (changed && frontmatter) {
+          if (frontmatterChanged && frontmatter) {
             const changedFields = Object.keys(updatedFrontmatter).filter(key => 
               JSON.stringify(updatedFrontmatter[key]) !== JSON.stringify(frontmatter[key])
             );
@@ -631,44 +671,50 @@ export class FileSystemObserver {
             }
           }
           
-          if (changed && !onlyDateModifiedChanged) {
+          if (!onlyDateModifiedChanged) {
             console.log(`Updating frontmatter in ${filePath} to add missing fields and/or convert properties...`);
             
             // Update the file with the new frontmatter
             const updatedContent = updateFrontmatter(content, updatedFrontmatter);
             await fs.writeFile(filePath, updatedContent, 'utf8');
             console.log(`Updated frontmatter in ${filePath}`);
+            
+            // Add to recently modified set and set a timeout to remove it
+            this.recentlyModifiedByObserver.add(filePath);
+            setTimeout(() => {
+              this.recentlyModifiedByObserver.delete(filePath);
+            }, this.modificationCooldownPeriod);
           } else {
             console.log(`No updates needed for ${filePath}`);
           }
         } else {
-          // If no frontmatter, try to add it
-          console.log(`No frontmatter found in ${filePath}, generating...`);
-          const template = this.templateRegistry.applyTemplate(filePath);
-          
-          if (template) {
-            // Format the frontmatter
-            const formattedFrontmatter = formatFrontmatter(template);
-            
-            // Create the new content with frontmatter
-            const newContent = `---\n${formattedFrontmatter}---\n\n${content}`;
-            
-            // Write the updated content back to the file
-            await fs.writeFile(filePath, newContent, 'utf8');
-            
-            console.log(`Added frontmatter to ${filePath}`);
-          } else {
-            console.log(`No template found for ${filePath}`);
-          }
+          console.log(`No frontmatter updates needed for ${filePath}`);
         }
-      } catch (error) {
-        console.error(`Error processing file change for ${filePath}:`, error);
-      } finally {
-        // Remove file from processing set when done
-        this.processingFiles.delete(filePath);
+      } else {
+        // If no frontmatter, try to add it
+        console.log(`No frontmatter found in ${filePath}, generating...`);
+        const template = this.templateRegistry.findTemplate(filePath);
+        
+        if (template) {
+          // Format the frontmatter
+          const formattedFrontmatter = formatFrontmatter(template);
+          
+          // Create the new content with frontmatter
+          const newContent = `---\n${formattedFrontmatter}---\n\n${content}`;
+          
+          // Write the updated content back to the file
+          await fs.writeFile(filePath, newContent, 'utf8');
+          
+          console.log(`Added frontmatter to ${filePath}`);
+        } else {
+          console.log(`No template found for ${filePath}`);
+        }
       }
     } catch (error) {
       console.error(`Error processing file change for ${filePath}:`, error);
+    } finally {
+      // Remove file from processing set when done
+      this.processingFiles.delete(filePath);
     }
   }
   
