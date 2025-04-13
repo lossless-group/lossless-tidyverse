@@ -13,7 +13,7 @@ import promptsTemplate from '../templates/prompts';
 import vocabularyTemplate from '../templates/vocabulary';
 import toolingTemplate from '../templates/tooling';
 import specificationsTemplate from '../templates/specifications';
-import { formatFrontmatter } from '../fileSystemObserver';
+import { formatFrontmatter } from '../../../site_archive/fileSystemObserver';
 
 /**
  * Service for managing metadata templates and validating frontmatter
@@ -338,5 +338,14 @@ export class TemplateRegistry {
     }
     
     return result;
+  }
+
+  /**
+   * Get all registered templates
+   * @returns Array of all registered templates
+   */
+  getAllTemplates(): MetadataTemplate[] {
+    // Convert the Map values to an array
+    return Array.from(this.templates.values());
   }
 }

@@ -7,7 +7,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { formatFrontmatter } from '../fileSystemObserver';
+import { formatFrontmatter } from '../../../site_archive/fileSystemObserver';
 
 /**
  * Configuration for citation processing

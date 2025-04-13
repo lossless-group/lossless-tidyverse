@@ -13,7 +13,7 @@
   },
   "include": [
     "**/*.ts"
-, "../../site_archive/test-citations-on-subdirectory.ts"  ],
+, "../../site_archive/test-citations-on-subdirectory.ts", "../../site_archive/fileSystemObserver.ts"  ],
   "exclude": [
     "node_modules",
     "dist"
