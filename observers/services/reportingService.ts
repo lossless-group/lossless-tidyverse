@@ -220,15 +220,21 @@ ${this.formatOpenGraphProcessingDetails()}
   }
   
   /**
-   * Get a list of unique files that had property name conversions
-   * @returns An array of file paths
+   * Helper method to create a properly formatted backlink
+   * @param filePath The absolute file path
+   * @returns A formatted backlink string [[path/to/file.md|Display Name]]
    */
-  private getUniqueFilesWithConversions(): string[] {
-    const uniqueFiles = new Set<string>();
-    for (const conversion of this.conversionLog) {
-      uniqueFiles.add(conversion.file);
-    }
-    return Array.from(uniqueFiles);
+  private createBacklink(filePath: string): string {
+    const basename = path.basename(filePath);
+    const displayName = basename.replace(/\.md$/, '');
+    
+    // Extract the relative path from the content directory
+    // Format: /path/to/content/dir/file.md -> dir/file.md
+    const relativePath = filePath
+      .replace(/^.*?\/content\//, '')  // Remove everything up to and including /content/
+      .replace(/\.md$/, '.md');        // Ensure .md extension is preserved
+    
+    return `[[${relativePath}|${displayName}]]`;
   }
   
   /**
@@ -240,18 +246,31 @@ ${this.formatOpenGraphProcessingDetails()}
       return 'No property name conversions were performed.';
     }
     
-    const uniqueFiles = this.getUniqueFilesWithConversions();
-    let result = '';
+    // Group by conversion type (fromKey -> toKey)
+    const conversionGroups: Record<string, string[]> = {};
     
-    for (const file of uniqueFiles) {
-      const conversionsForFile = this.conversionLog.filter(c => c.file === file);
-      const basename = path.basename(file);
+    for (const conversion of this.conversionLog) {
+      const conversionKey = `\`${conversion.fromKey}\` → \`${conversion.toKey}\``;
       
-      result += `#### [[${basename}]]\n`;
-      for (const conversion of conversionsForFile) {
-        result += `- \`${conversion.fromKey}\` → \`${conversion.toKey}\`\n`;
+      if (!conversionGroups[conversionKey]) {
+        conversionGroups[conversionKey] = [];
       }
-      result += '\n';
+      
+      // Only add the file if it's not already in the list
+      if (!conversionGroups[conversionKey].includes(conversion.file)) {
+        conversionGroups[conversionKey].push(conversion.file);
+      }
+    }
+    
+    let result = '## Property Name Conversions\n\n';
+    
+    for (const [conversionKey, files] of Object.entries(conversionGroups)) {
+      result += `### ${conversionKey}\n\n`;
+      
+      // Create comma-separated cloud of backlinks
+      const backlinks = files.map(file => this.createBacklink(file));
+      
+      result += backlinks.join(', ') + '\n\n';
     }
     
     return result;
@@ -266,35 +285,69 @@ ${this.formatOpenGraphProcessingDetails()}
       return 'No validation issues were found.';
     }
     
+    // Group issues by error type
+    const errorGroups: Record<string, Array<{ file: string, message: string }>> = {};
+    const warningGroups: Record<string, Array<{ file: string, message: string }>> = {};
+    
+    // Process all validation issues
+    for (const issue of this.validationIssues) {
+      // Process errors
+      for (const error of issue.result.errors) {
+        const errorKey = `${error.field}: ${error.message}`;
+        
+        if (!errorGroups[errorKey]) {
+          errorGroups[errorKey] = [];
+        }
+        
+        errorGroups[errorKey].push({
+          file: issue.file,
+          message: error.message
+        });
+      }
+      
+      // Process warnings
+      for (const warning of issue.result.warnings) {
+        const warningKey = `${warning.field}: ${warning.message}`;
+        
+        if (!warningGroups[warningKey]) {
+          warningGroups[warningKey] = [];
+        }
+        
+        warningGroups[warningKey].push({
+          file: issue.file,
+          message: warning.message
+        });
+      }
+    }
+    
     let result = '';
     
-    for (const issue of this.validationIssues) {
-      const basename = path.basename(issue.file);
+    // Format errors
+    if (Object.keys(errorGroups).length > 0) {
+      result += '## Validation Errors\n\n';
       
-      result += `#### [[${basename}]]\n`;
-      
-      if (issue.result.errors.length > 0) {
-        result += '**Errors:**\n';
-        for (const error of issue.result.errors) {
-          result += `- ${error.field}: ${error.message}\n`;
-        }
+      for (const [errorKey, files] of Object.entries(errorGroups)) {
+        result += `### ${errorKey}\n\n`;
+        
+        // Create comma-separated cloud of backlinks
+        const backlinks = files.map(fileInfo => this.createBacklink(fileInfo.file));
+        
+        result += backlinks.join(', ') + '\n\n';
       }
+    }
+    
+    // Format warnings
+    if (Object.keys(warningGroups).length > 0) {
+      result += '## Validation Warnings\n\n';
       
-      if (issue.result.warnings.length > 0) {
-        result += '**Warnings:**\n';
-        for (const warning of issue.result.warnings) {
-          result += `- ${warning.field}: ${warning.message}\n`;
-        }
+      for (const [warningKey, files] of Object.entries(warningGroups)) {
+        result += `### ${warningKey}\n\n`;
+        
+        // Create comma-separated cloud of backlinks
+        const backlinks = files.map(fileInfo => this.createBacklink(fileInfo.file));
+        
+        result += backlinks.join(', ') + '\n\n';
       }
-      
-      if (issue.result.suggestedFixes) {
-        result += '**Suggested Fixes:**\n';
-        for (const [key, value] of Object.entries(issue.result.suggestedFixes)) {
-          result += `- ${key}: ${JSON.stringify(value)}\n`;
-        }
-      }
-      
-      result += '\n';
     }
     
     return result;
@@ -309,25 +362,49 @@ ${this.formatOpenGraphProcessingDetails()}
       return 'No fields were added to any files.';
     }
     
-    const uniqueFiles = new Set<string>();
+    // Group by field added
+    const fieldGroups: Record<string, Array<{file: string, value: any}>> = {};
+    
     for (const addition of this.fieldsAdded) {
-      uniqueFiles.add(addition.file);
+      const fieldKey = `\`${addition.field}\``;
+      
+      if (!fieldGroups[fieldKey]) {
+        fieldGroups[fieldKey] = [];
+      }
+      
+      fieldGroups[fieldKey].push({
+        file: addition.file,
+        value: addition.value
+      });
     }
     
-    let result = '';
+    let result = '## Fields Added to Files\n\n';
     
-    for (const file of uniqueFiles) {
-      const additionsForFile = this.fieldsAdded.filter(a => a.file === file);
-      const basename = path.basename(file);
+    for (const [fieldKey, additions] of Object.entries(fieldGroups)) {
+      // Group by value for this field
+      const valueGroups: Record<string, string[]> = {};
       
-      result += `#### [[${basename}]]\n`;
-      for (const addition of additionsForFile) {
+      for (const addition of additions) {
         const valueStr = typeof addition.value === 'object' 
           ? JSON.stringify(addition.value) 
           : String(addition.value);
-        result += `- Added \`${addition.field}\`: ${valueStr}\n`;
+        
+        if (!valueGroups[valueStr]) {
+          valueGroups[valueStr] = [];
+        }
+        
+        valueGroups[valueStr].push(addition.file);
       }
-      result += '\n';
+      
+      // For each value of this field
+      for (const [valueStr, files] of Object.entries(valueGroups)) {
+        result += `### ${fieldKey} added with value: ${valueStr}\n\n`;
+        
+        // Create comma-separated cloud of backlinks
+        const backlinks = files.map(file => this.createBacklink(file));
+        
+        result += backlinks.join(', ') + '\n\n';
+      }
     }
     
     return result;
@@ -342,14 +419,33 @@ ${this.formatOpenGraphProcessingDetails()}
       return 'No citation conversions were performed.';
     }
     
-    let result = '';
+    // Group files by citation count
+    const citationGroups: Record<number, string[]> = {};
     
     for (const conversion of this.citationConversions) {
-      const basename = path.basename(conversion.file);
+      if (!citationGroups[conversion.count]) {
+        citationGroups[conversion.count] = [];
+      }
       
-      result += `#### [[${basename}]]\n`;
-      result += `- Converted ${conversion.count} citations\n`;
-      result += '\n';
+      citationGroups[conversion.count].push(conversion.file);
+    }
+    
+    let result = '## Files with Citation Conversions\n\n';
+    
+    // Sort by citation count (descending)
+    const sortedCounts = Object.keys(citationGroups)
+      .map(count => parseInt(count))
+      .sort((a, b) => b - a);
+    
+    for (const count of sortedCounts) {
+      const files = citationGroups[count];
+      
+      result += `### ${count} Citation${count === 1 ? '' : 's'} Converted\n\n`;
+      
+      // Create comma-separated cloud of backlinks
+      const backlinks = files.map(file => this.createBacklink(file));
+      
+      result += backlinks.join(', ') + '\n\n';
     }
     
     return result;
@@ -365,40 +461,35 @@ ${this.formatOpenGraphProcessingDetails()}
     if (this.openGraphStats.succeeded.size > 0) {
       result += '\n### Files with successful OpenGraph fetches\n';
       for (const file of this.openGraphStats.succeeded) {
-        const relativePath = file.replace(/^.*\/content\//, 'content/');
-        result += `- [[${relativePath}]]\n`;
+        result += `- ${this.createBacklink(file)}\n`;
       }
     }
     
     if (this.openGraphStats.failed.size > 0) {
       result += '\n### Files with failed OpenGraph fetches\n';
       for (const file of this.openGraphStats.failed) {
-        const relativePath = file.replace(/^.*\/content\//, 'content/');
-        result += `- [[${relativePath}]]\n`;
+        result += `- ${this.createBacklink(file)}\n`;
       }
     }
     
     if (this.openGraphStats.skipped.size > 0) {
       result += '\n### Files skipped (already had OpenGraph data)\n';
       for (const file of this.openGraphStats.skipped) {
-        const relativePath = file.replace(/^.*\/content\//, 'content/');
-        result += `- [[${relativePath}]]\n`;
+        result += `- ${this.createBacklink(file)}\n`;
       }
     }
     
     if (this.openGraphStats.screenshotSucceeded.size > 0) {
       result += '\n### Files with successful screenshot URL fetches\n';
       for (const file of this.openGraphStats.screenshotSucceeded) {
-        const relativePath = file.replace(/^.*\/content\//, 'content/');
-        result += `- [[${relativePath}]]\n`;
+        result += `- ${this.createBacklink(file)}\n`;
       }
     }
     
     if (this.openGraphStats.screenshotFailed.size > 0) {
       result += '\n### Files with failed screenshot URL fetches\n';
       for (const file of this.openGraphStats.screenshotFailed) {
-        const relativePath = file.replace(/^.*\/content\//, 'content/');
-        result += `- [[${relativePath}]]\n`;
+        result += `- ${this.createBacklink(file)}\n`;
       }
     }
     

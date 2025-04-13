@@ -42,6 +42,25 @@ export interface MetadataTemplate {
   optional: {
     [key: string]: TemplateField;
   };
+
+  // Citation configuration for citation processing
+  citationConfig?: {
+    registryPath: string;
+    hexLength: number;
+    footnotesSectionHeader: string;
+    footnotesSectionSeparator: string;
+    [key: string]: any;
+  };
+
+  // Content processing capability
+  contentProcessing?: {
+    enabled: boolean;
+    processor: (content: string, filePath: string) => Promise<{
+      updatedContent: string;
+      changed: boolean;
+      stats?: Record<string, any>;
+    }>;
+  };
 }
 
 /**

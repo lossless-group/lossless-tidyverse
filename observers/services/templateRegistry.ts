@@ -12,6 +12,7 @@ import { minimatch } from 'minimatch';
 import promptsTemplate from '../templates/prompts';
 import vocabularyTemplate from '../templates/vocabulary';
 import toolingTemplate from '../templates/tooling';
+import specificationsTemplate from '../templates/specifications';
 import { formatFrontmatter } from '../fileSystemObserver';
 
 /**
@@ -39,6 +40,7 @@ export class TemplateRegistry {
     this.registerTemplate(toolingTemplate);
     this.registerTemplate(vocabularyTemplate);
     this.registerTemplate(promptsTemplate);
+    this.registerTemplate(specificationsTemplate);
   }
   
   /**
@@ -85,6 +87,12 @@ export class TemplateRegistry {
             return template;
           }
           
+          // Check for specifications template
+          if (template.id === 'specifications' && normalizedPath.includes('content/specs/')) {
+            console.log(`Template ${template.id} matches path ${normalizedPath}`);
+            return template;
+          }
+          
           // Also try the direct minimatch for relative paths
           if (minimatch(normalizedPath, pattern)) {
             console.log(`Template ${template.id} matches path ${normalizedPath} with pattern ${pattern}`);
@@ -97,7 +105,7 @@ export class TemplateRegistry {
       if (template.appliesTo.filePatterns) {
         for (const pattern of template.appliesTo.filePatterns) {
           if (minimatch(path.basename(normalizedPath), pattern)) {
-            console.log(`Template ${template.id} matches file ${path.basename(normalizedPath)} with pattern ${pattern}`);
+            console.log(`Template ${template.id} matches filename ${path.basename(normalizedPath)} with pattern ${pattern}`);
             return template;
           }
         }
@@ -106,6 +114,59 @@ export class TemplateRegistry {
     
     console.log(`No template found for ${normalizedPath}`);
     return null;
+  }
+  
+  /**
+   * Find all templates that apply to a specific file
+   * This is different from findTemplate as it returns all matching templates,
+   * which is useful for content processing templates that might apply to the same file
+   * @param filePath The path to the file
+   * @returns Array of matching templates
+   */
+  findTemplateForFile(filePath: string): MetadataTemplate[] {
+    // Normalize path for matching
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    
+    console.log(`Finding content processing template for: ${normalizedPath}`);
+    
+    // Find templates that have content processing enabled
+    const matchingTemplates: MetadataTemplate[] = [];
+    for (const template of this.templates.values()) {
+      // Skip templates without content processing
+      if (!template.contentProcessing || !template.contentProcessing.enabled) {
+        continue;
+      }
+      
+      // Check directory patterns
+      if (template.appliesTo.directories) {
+        for (const pattern of template.appliesTo.directories) {
+          // For absolute paths, check if they contain the pattern
+          if (normalizedPath.includes(pattern.replace('**/*', ''))) {
+            console.log(`Content processing template ${template.id} matches path ${normalizedPath}`);
+            matchingTemplates.push(template);
+          }
+          
+          // Also try the direct minimatch for relative paths
+          if (minimatch(normalizedPath, pattern)) {
+            console.log(`Content processing template ${template.id} matches path ${normalizedPath} with pattern ${pattern}`);
+            matchingTemplates.push(template);
+          }
+        }
+      }
+      
+      // Check file patterns
+      if (template.appliesTo.filePatterns) {
+        for (const pattern of template.appliesTo.filePatterns) {
+          if (minimatch(path.basename(normalizedPath), pattern)) {
+            console.log(`Content processing template ${template.id} matches filename ${path.basename(normalizedPath)} with pattern ${pattern}`);
+            matchingTemplates.push(template);
+          }
+        }
+      }
+    }
+    
+    console.log(`Found ${matchingTemplates.length} content processing templates for ${normalizedPath}`);
+    return matchingTemplates;
   }
   
   /**

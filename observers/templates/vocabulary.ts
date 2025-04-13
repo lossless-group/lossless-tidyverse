@@ -45,7 +45,9 @@ const vocabularyTemplate: MetadataTemplate = {
       type: 'date',
       description: 'Last modification date',
       defaultValueFn: () => {
-        // Use the shared utility function for current date
+        // Only generate a default value for new files or missing fields
+        // This will be used when the field is missing, but won't trigger updates
+        // to existing values
         return getCurrentDate();
       }
     },

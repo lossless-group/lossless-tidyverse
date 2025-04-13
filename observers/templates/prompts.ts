@@ -51,7 +51,7 @@ const promptsTemplate: MetadataTemplate = {
     date_authored_initial_draft: {
       type: 'date',
       description: 'Date of initial draft authoring',
-      validation: (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value),
+      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)),
       defaultValueFn: () => {
         // CRITICAL: Only use YYYY-MM-DD format, never include time component
         const today = new Date();
@@ -64,7 +64,7 @@ const promptsTemplate: MetadataTemplate = {
     date_authored_current_draft: {
       type: 'date',
       description: 'Date of current draft authoring',
-      validation: (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value),
+      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)),
       defaultValueFn: () => {
         // CRITICAL: Only use YYYY-MM-DD format, never include time component
         const today = new Date();
@@ -99,10 +99,7 @@ const promptsTemplate: MetadataTemplate = {
     status: {
       type: 'string',
       description: 'Current status of the prompt',
-      validation: (value) => {
-        const allowedValues = ['To-Prompt', 'In-Progress', 'Implemented', 'Published'];
-        return typeof value === 'string' && allowedValues.includes(value);
-      },
+      validation: (value) => value === null || typeof value === 'string',
       defaultValueFn: () => 'To-Prompt'
     },
     augmented_with: {
@@ -198,6 +195,15 @@ const promptsTemplate: MetadataTemplate = {
         // Use the shared utility function for current date
         return getCurrentDate();
       }
+    },
+    site_uuid: {
+      type: 'string',
+      description: 'Unique identifier for the resource on the website',
+      validation: (value) => typeof value === 'string' && value.length > 0,
+      defaultValueFn: () => {
+        // Generate a UUID v4 for the resource
+        return generateUUID();
+      }
     }
   },
   
@@ -206,22 +212,22 @@ const promptsTemplate: MetadataTemplate = {
     date_authored_final_draft: {
       type: 'date',
       description: 'Date of final draft authoring',
-      validation: (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
     },
     date_first_published: {
       type: 'date',
       description: 'Date of first publication',
-      validation: (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
     },
     date_last_updated: {
       type: 'date',
       description: 'Date of last update',
-      validation: (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
     },
     date_first_run: {
       type: 'date',
       description: 'Date the prompt was first run',
-      validation: (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
     }
   }
 };

@@ -104,6 +104,17 @@ async function extractFrontmatter(
               (value.startsWith("'") && value.endsWith("'"))) {
             value = value.substring(1, value.length - 1);
           }
+          
+          // Remove block scalar syntax if present (>-, >+, |-, |+)
+          if (value === ">-" || value === ">+" || value === "|-" || value === "|+") {
+            // If it's just the block scalar marker, treat it as an empty string
+            value = "";
+          } else if (value.startsWith(">-") || value.startsWith(">+") || 
+                     value.startsWith("|-") || value.startsWith("|+")) {
+            // If it starts with a block scalar marker, remove it
+            value = value.substring(2).trim();
+          }
+          
           frontmatter[key] = value;
         }
         
@@ -213,9 +224,12 @@ export function formatFrontmatter(frontmatter: Record<string, any>): string {
       if (neverQuoteFields.includes(key)) {
         yamlContent += `${key}: ${value}\n`;
       }
-      // If the string contains special characters, quote it
+      // If the string contains special characters or newlines, always quote it
+      // NEVER use block scalar syntax (>- or |-) for any values
       else if (/[:#\[\]{}|>*&!%@,]/.test(value) || value.includes('\n')) {
-        yamlContent += `${key}: "${value.replace(/"/g, '\\"')}"\n`;
+        // Escape any double quotes in the value
+        const escapedValue = value.replace(/"/g, '\\"');
+        yamlContent += `${key}: "${escapedValue}"\n`;
       } else {
         yamlContent += `${key}: ${value}\n`;
       }
@@ -364,11 +378,13 @@ async function addMissingRequiredFields(
           reportingService.logFieldAdded(filePath, 'date_created', today);
           changed = true;
         } else if (fieldName === 'date_modified') {
-          // Special case for date_modified field - use current date
-          const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-          updatedFrontmatter.date_modified = today;
-          reportingService.logFieldAdded(filePath, 'date_modified', today);
-          changed = true;
+          // Special case for date_modified field - use current date only if it's missing
+          if (updatedFrontmatter[fieldName] === undefined) {
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            updatedFrontmatter.date_modified = today;
+            reportingService.logFieldAdded(filePath, 'date_modified', today);
+            changed = true;
+          }
         } else if (fieldName === 'title') {
           // Special case for title field - derive from filename
           const filename = path.basename(filePath, path.extname(filePath));
@@ -430,9 +446,11 @@ export class FileSystemObserver {
   private contentRoot: string;
   private processingFiles: Set<string> = new Set();
   private initialProcessingComplete: boolean = false;
-  private initialProcessingTimeout: NodeJS.Timeout | null = null;
-  private reportInterval: NodeJS.Timeout | null = null;
   private processedFilesInInitialPhase: Set<string> | null = null;
+  private initialProcessingTimeout: NodeJS.Timeout | null = null;
+  private recentlyModifiedByObserver: Set<string> = new Set();
+  private modificationCooldownPeriod: number = 2000; // 2 seconds cooldown
+  private reportInterval: NodeJS.Timeout | null = null;
   
   /**
    * Create a new FileSystemObserver
@@ -457,9 +475,6 @@ export class FileSystemObserver {
     this.reportingService = reportingService;
     this.contentRoot = contentRoot;
     
-    // Set up a set to track files being processed to prevent duplicate processing
-    this.processingFiles = new Set<string>();
-    
     // Set default options
     this.options.ignoreInitial = this.options.ignoreInitial ?? false;
     this.options.processExistingFiles = this.options.processExistingFiles ?? true;
@@ -469,7 +484,8 @@ export class FileSystemObserver {
     this.watcher = chokidar.watch([
       path.join(contentRoot, 'tooling'),
       path.join(contentRoot, 'vocabulary'),
-      path.join(contentRoot, 'lost-in-public/prompts')
+      path.join(contentRoot, 'lost-in-public/prompts'),
+      path.join(contentRoot, 'specs')
     ], {
       persistent: true,
       ignoreInitial: this.options.ignoreInitial,
@@ -615,6 +631,12 @@ export class FileSystemObserver {
       return;
     }
     
+    // Skip if this file was recently modified by the observer
+    if (this.recentlyModifiedByObserver.has(filePath)) {
+      console.log(`Skipping citation processing for ${filePath} as it was recently modified by the observer`);
+      return;
+    }
+    
     try {
       // Mark file as being processed
       this.processingFiles.add(filePath);
@@ -622,19 +644,90 @@ export class FileSystemObserver {
       // Read the file content
       const content = await fs.readFile(filePath, 'utf8');
       
-      // Process citations in the content
-      const { updatedContent, changed: citationsChanged, stats } = await processCitations(content, filePath);
+      // Find the templates that apply to this file
+      const templates = this.templateRegistry.findTemplateForFile(filePath);
       
-      // If citations were changed, update the file
-      if (citationsChanged) {
-        this.reportingService.logCitationConversion(filePath, stats.citationsConverted);
-        console.log(`Converted ${stats.citationsConverted} citations in ${filePath}`);
-        
-        // Write the updated content back to the file
-        await fs.writeFile(filePath, updatedContent, 'utf8');
-        console.log(`Updated citations in ${filePath}`);
+      if (templates && templates.length > 0) {
+        // Use the first template with content processing
+        const template = templates[0];
+        // Check if contentProcessing exists before accessing its processor
+        if (template.contentProcessing && template.contentProcessing.enabled) {
+          console.log(`Using content processor from template: ${template.id}`);
+          const { updatedContent, changed, stats } = await template.contentProcessing.processor(content, filePath);
+          
+          // If content was changed, update the file
+          if (changed) {
+            // Add detailed reporting based on stats
+            if (stats && stats.citationsConverted) {
+              this.reportingService.logCitationConversion(filePath, stats.citationsConverted);
+              console.log(`Converted ${stats.citationsConverted} citations in ${filePath}`);
+            }
+            
+            if (stats && stats.footnotesAdded) {
+              console.log(`Added ${stats.footnotesAdded} footnote definitions in ${filePath}`);
+            }
+            
+            if (stats && stats.footnoteSectionAdded) {
+              console.log(`Added Footnotes section in ${filePath}`);
+            }
+            
+            // Write the updated content back to the file
+            await fs.writeFile(filePath, updatedContent, 'utf8');
+            console.log(`Updated content in ${filePath}`);
+            
+            // Add to recently modified set and set a timeout to remove it
+            this.recentlyModifiedByObserver.add(filePath);
+            setTimeout(() => {
+              this.recentlyModifiedByObserver.delete(filePath);
+            }, this.modificationCooldownPeriod);
+          } else {
+            console.log(`No content updates needed for ${filePath}`);
+          }
+        } else {
+          // Fall back to direct citation processing if no template with content processing is found
+          console.log(`No content processing template found for ${filePath}, using default citation processing`);
+          const { updatedContent, changed: citationsChanged, stats } = await processCitations(content, filePath);
+          
+          // If citations were changed, update the file
+          if (citationsChanged) {
+            this.reportingService.logCitationConversion(filePath, stats.citationsConverted);
+            console.log(`Converted ${stats.citationsConverted} citations in ${filePath}`);
+            
+            // Write the updated content back to the file
+            await fs.writeFile(filePath, updatedContent, 'utf8');
+            console.log(`Updated citations in ${filePath}`);
+            
+            // Add to recently modified set and set a timeout to remove it
+            this.recentlyModifiedByObserver.add(filePath);
+            setTimeout(() => {
+              this.recentlyModifiedByObserver.delete(filePath);
+            }, this.modificationCooldownPeriod);
+          } else {
+            console.log(`No citation updates needed for ${filePath}`);
+          }
+        }
       } else {
-        console.log(`No citation updates needed for ${filePath}`);
+        // Fall back to direct citation processing if no template is found
+        console.log(`No template found for ${filePath}, using default citation processing`);
+        const { updatedContent, changed: citationsChanged, stats } = await processCitations(content, filePath);
+        
+        // If citations were changed, update the file
+        if (citationsChanged) {
+          this.reportingService.logCitationConversion(filePath, stats.citationsConverted);
+          console.log(`Converted ${stats.citationsConverted} citations in ${filePath}`);
+          
+          // Write the updated content back to the file
+          await fs.writeFile(filePath, updatedContent, 'utf8');
+          console.log(`Updated citations in ${filePath}`);
+          
+          // Add to recently modified set and set a timeout to remove it
+          this.recentlyModifiedByObserver.add(filePath);
+          setTimeout(() => {
+            this.recentlyModifiedByObserver.delete(filePath);
+          }, this.modificationCooldownPeriod);
+        } else {
+          console.log(`No citation updates needed for ${filePath}`);
+        }
       }
     } catch (error) {
       console.error(`Error processing citations in ${filePath}:`, error);
@@ -892,10 +985,42 @@ export class FileSystemObserver {
         
         // If there are conversions needed or fields were added, update the file
         const needsUpdate = frontmatterResult.hasConversions || frontmatterChanged;
+        
+        // Check if date_modified is the only field that would change
+        let onlyDateModifiedChanged = false;
+        if (frontmatterChanged && frontmatterResult.frontmatter && 
+            Object.keys(updatedFrontmatter).length === Object.keys(frontmatterResult.frontmatter).length) {
+          const changedFields = Object.keys(updatedFrontmatter).filter(key => 
+            JSON.stringify(updatedFrontmatter[key]) !== JSON.stringify(frontmatterResult.frontmatter?.[key])
+          );
+          
+          if (changedFields.length === 1 && changedFields[0] === 'date_modified') {
+            console.log(`Only date_modified would change in ${filePath}, skipping update to prevent unnecessary modifications`);
+            onlyDateModifiedChanged = true;
+            
+            // During initial processing, skip updating files just for date_modified
+            if (!this.initialProcessingComplete) {
+              console.log(`Skipping date_modified update during initial processing phase for ${filePath}`);
+            } else {
+              // After initial processing, check if this is a user-modified file
+              const lastModified = (await fs.stat(filePath)).mtime.getTime();
+              const currentTime = Date.now();
+              const timeSinceModification = currentTime - lastModified;
+              
+              // If the file was modified recently (within 60 seconds) and we're in regular observer mode,
+              // it's likely a user update, so we should update date_modified
+              if (timeSinceModification < 60000) {
+                console.log(`File ${filePath} was recently modified by user, updating date_modified`);
+                onlyDateModifiedChanged = false; // Allow the update to proceed
+              }
+            }
+          }
+        }
+        
         const frontmatterToUse = frontmatterChanged ? updatedFrontmatter : 
                                 (frontmatterResult.hasConversions ? frontmatterResult.convertedFrontmatter : frontmatterResult.frontmatter);
         
-        if (needsUpdate && frontmatterToUse) {
+        if (needsUpdate && frontmatterToUse && !onlyDateModifiedChanged) {
           console.log(`Updating frontmatter in ${filePath} to add missing fields and/or convert properties...`);
           console.log(`Updated frontmatter:`, frontmatterToUse);
           
