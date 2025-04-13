@@ -5,6 +5,9 @@ It's a pain, and it involves a lot of scripting and command line work.
 
 Let's aggregate all that here.  
 
+# Initiatives:
+I'm trying to create an "observer" that uses the node filesystem built in functions to watch for changes in the content submodule and then enforce various yaml standards.  
+
 # Directory Structure
 
 <pre>

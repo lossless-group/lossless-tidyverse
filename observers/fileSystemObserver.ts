@@ -446,7 +446,7 @@ export class FileSystemObserver {
           
           if (template) {
             // Generate frontmatter from template
-            const frontmatterToUse = {};
+            const frontmatterToUse: Record<string, any> = {};
             
             // Add required fields
             if (template.required) {
