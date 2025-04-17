@@ -364,19 +364,32 @@ function extractCitationText(content: string, hexId: string): string | undefined
 }
 
 /**
- * Fix spacing around citations
- * Ensures there's at least one space before citations and one space or newline after
+ * Fix spacing around citations (inline only)
+ * Ensures exactly one space before citations (unless at line start), and exactly one space after citations (unless followed by space, newline, punctuation, or end of line).
+ * Handles multiple adjacent citations, punctuation, and collapses extra spaces.
+ * Never alters footnote definition lines.
  * @param content - The markdown content
  * @returns The content with fixed spacing
  */
 function fixCitationSpacing(content: string): string {
-  // Ensure space before citation
-  content = content.replace(/([^\s])\[\^/g, '$1 [^');
-  
-  // Ensure space or newline after citation
-  content = content.replace(/\]([^\s\n])/g, '] $1');
-  
-  return content;
+  // Split content into lines for context-aware processing
+  const lines = content.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    // Only operate on lines that are NOT footnote definitions ([^hex]: ...)
+    if (!/^\[\^[0-9a-f]{6}\]:/i.test(lines[i].trim())) {
+      // Step 1: Insert a space BEFORE any citation not at start of line or preceded by space
+      lines[i] = lines[i].replace(/([^\s]|^)(\[\^[0-9a-f]{6}\])(?!:)/gi, (m, before, citation) => {
+        return (before === '' ? '' : before + ' ') + citation;
+      });
+      // Step 2: Insert a space AFTER any citation not followed by space, newline, punctuation, or end of line
+      // This ensures adjacent citations are always separated by a space
+      lines[i] = lines[i].replace(/(\[\^[0-9a-f]{6}\])(?!:)(?![ \n.,;:!?]|$)/gi, '$1 ');
+      // Step 3: Collapse extra spaces around citations
+      lines[i] = lines[i].replace(/ +/g, ' ');
+    }
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -482,64 +495,11 @@ function ensureFootnotesSection(
   return `${contentBefore}\n\n${config.footnotesSectionHeader}\n\n${config.footnotesSectionSeparator}\n\n${contentAfter}`;
 }
 
-/**
- * Safely update the citation registry with backup and error recovery
- * @param registryPath - Path to the registry file
- * @param updateFn - Function to update the registry data
- */
-async function safelyUpdateRegistry(
-  registryPath: string, 
-  updateFn: (data: any) => any
-): Promise<void> {
-  // Create directory if it doesn't exist
-  const dir = path.dirname(registryPath);
-  await fs.mkdir(dir, { recursive: true });
-  
-  // Create backup path
-  const backupPath = `${registryPath}.backup`;
-  
-  try {
-    // Check if original file exists
-    try {
-      await fs.access(registryPath);
-      // Create backup if file exists
-      await fs.copyFile(registryPath, backupPath);
-    } catch (error) {
-      // If file doesn't exist, create empty file
-      await fs.writeFile(registryPath, '{}', 'utf8');
-      await fs.copyFile(registryPath, backupPath);
-    }
-    
-    // Get updated data
-    const data = JSON.parse(await fs.readFile(registryPath, 'utf8'));
-    const updatedData = updateFn(data);
-    
-    // Write to temporary file first
-    const tempPath = `${registryPath}.temp`;
-    await fs.writeFile(tempPath, JSON.stringify(updatedData, null, 2), 'utf8');
-    
-    // Rename temp file to actual file (atomic operation)
-    await fs.rename(tempPath, registryPath);
-    
-    // Remove backup if successful
-    await fs.unlink(backupPath);
-  } catch (error) {
-    console.error('Error updating registry:', error);
-    
-    // Restore from backup on error
-    try {
-      await fs.copyFile(backupPath, registryPath);
-    } catch (restoreError) {
-      console.error('Failed to restore registry from backup:', restoreError);
-    }
-    throw error;
-  }
-}
-
+// --- Removed unused function: safelyUpdateRegistry ---
 /**
  * Extract code blocks from content and replace with placeholders
  * @param content - The markdown content
- * @returns Object with processable content and code blocks
+ * @returns Object containing processable content and code blocks
  */
 function extractCodeBlocks(content: string): {
   processableContent: string;
@@ -704,33 +664,30 @@ export async function processCitations(
 }> {
   // Get citation registry
   const citationRegistry = CitationRegistry.getInstance(config);
-  
+
   // Load existing registry
   await citationRegistry.loadFromDisk();
-  
+
   // Extract code blocks and replace with placeholders
   const { processableContent: bodyWithoutCodeBlocks, codeBlocks } = extractCodeBlocks(content);
-  
+
   // Extract inline code and replace with placeholders
   const { processableContent: processableBody, inlineCode } = extractInlineCode(bodyWithoutCodeBlocks);
-  
+
   // Only process citations in the non-code content
-  
-  // Step 1: Fix citation spacing
-  const bodyWithFixedSpacing = fixCitationSpacing(processableBody);
-  
-  // Step 2: Convert citations without carets
-  const bodyWithCarets = convertCitationsToCaret(bodyWithFixedSpacing);
-  
-  // Step 3: Convert numeric citations to hex
+
+  // Step 1: Convert citations without carets
+  const bodyWithCarets = convertCitationsToCaret(processableBody);
+
+  // Step 2: Convert numeric citations to hex
   const { updatedContent: bodyWithHexCitations, stats: conversionStats } = 
     convertNumericCitationsToHex(bodyWithCarets, citationRegistry, filePath);
-  
-  // Step 4: Ensure all citations have footnote definitions
+
+  // Step 3: Ensure all citations have footnote definitions
   const { updatedContent: bodyWithFootnotes, footnotesAdded } = 
     ensureFootnoteDefinitions(bodyWithHexCitations, citationRegistry);
-  
-  // Step 5: Ensure Footnotes section exists if needed
+
+  // Step 4: Ensure Footnotes section exists if needed
   const hadFootnotesSection = bodyWithFootnotes.includes(config.footnotesSectionHeader);
   const bodyWithFootnotesSection = ensureFootnotesSection(bodyWithFootnotes, {
     footnotesSectionHeader: config.footnotesSectionHeader,
@@ -738,47 +695,47 @@ export async function processCitations(
   });
   const footnoteSectionAdded = !hadFootnotesSection && 
     bodyWithFootnotesSection.includes(config.footnotesSectionHeader);
-  
+
+  // Step 5: FIX CITATION SPACING ON FINAL OUTPUT
+  let bodyWithFixedSpacing = fixCitationSpacing(bodyWithFootnotesSection);
+
   // Extract citation text for all hex citations and update registry
   const hexCitationRegex = /\[\^([0-9a-f]{6})\]/g;
-  const hexCitations = [...bodyWithFootnotesSection.matchAll(hexCitationRegex)];
-  
+  const hexCitations = [...bodyWithFixedSpacing.matchAll(hexCitationRegex)];
+
   hexCitations.forEach(match => {
     const hexId = match[1];
-    const citationText = extractCitationText(bodyWithFootnotesSection, hexId);
-    
+    const citationText = extractCitationText(bodyWithFixedSpacing, hexId);
+
     if (citationText) {
       citationRegistry.addCitation(hexId, {
         sourceText: citationText,
         files: [filePath]
       });
     }
-    
+
     // Update citation registry with this file
     citationRegistry.updateCitationFiles(hexId, filePath);
   });
-  
-  // Restore inline code
-  let restoredContent = bodyWithFootnotesSection;
-  
+
   // Restore inline code first (reverse order)
   for (let i = inlineCode.length - 1; i >= 0; i--) {
     const { placeholder, original } = inlineCode[i];
-    restoredContent = restoredContent.replace(placeholder, original);
+    bodyWithFixedSpacing = bodyWithFixedSpacing.replace(placeholder, original);
   }
-  
+
   // Restore code blocks
   for (let i = codeBlocks.length - 1; i >= 0; i--) {
     const { placeholder, original } = codeBlocks[i];
-    restoredContent = restoredContent.replace(placeholder, original);
+    bodyWithFixedSpacing = bodyWithFixedSpacing.replace(placeholder, original);
   }
-  
+
   // Save citation registry
   await citationRegistry.saveToDisk();
-  
+
   return {
-    updatedContent: restoredContent,
-    changed: restoredContent !== content,
+    updatedContent: bodyWithFixedSpacing,
+    changed: bodyWithFixedSpacing !== content,
     stats: {
       citationsConverted: conversionStats.conversionsPerformed,
       footnotesAdded,
