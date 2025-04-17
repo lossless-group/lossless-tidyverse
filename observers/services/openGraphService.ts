@@ -86,19 +86,20 @@ export async function processOpenGraphMetadata(
   // --- BEGIN: OpenGraph Field Existence Checks ---
   // Canonical OpenGraph fields for frontmatter
   const ogFields = [
-    'image',
+    'og_image',
     'og_url',
     'video',
     'favicon',
     'site_name',
     'title',
     'description',
+    'og_images',
     // Add more as needed based on project prompt
   ];
 
   // Only run OpenGraph API if any of these fields are missing or empty
   const needsOpenGraph = ogFields.some(
-    (key) => !updatedFrontmatter[key] || updatedFrontmatter[key].toString().trim() === ''
+    (key) => !updatedFrontmatter[key] || (Array.isArray(updatedFrontmatter[key]) ? updatedFrontmatter[key].length === 0 : updatedFrontmatter[key].toString().trim() === '')
   );
 
   // Only run screenshot API if og_screenshot_url is missing or empty
@@ -113,11 +114,47 @@ export async function processOpenGraphMetadata(
   if (needsOpenGraph) {
     const ogData = await fetchOpenGraphData(updatedFrontmatter.url || updatedFrontmatter.link, effectiveFilePath!);
     if (ogData) {
-      // Map OpenGraph fields to frontmatter, always as plain string
-      if (ogData.image) {
-        updatedFrontmatter.image = ogData.image;
+      // --- BEGIN: OpenGraph Image Handling ---
+      // 1. Do NOT overwrite existing 'image' or 'images' properties
+      // 2. Map singular image URLs to 'og_image' (bare string, full URL)
+      // 3. Map arrays of image URLs to 'og_images' (array of bare, full URLs)
+      // 4. Never quote or truncate URLs
+
+      // Preserve existing 'image' and 'images' if present
+      const hasImage = Object.prototype.hasOwnProperty.call(updatedFrontmatter, 'image');
+      const hasImages = Object.prototype.hasOwnProperty.call(updatedFrontmatter, 'images');
+
+      // --- Handle singular image ---
+      let singleImageUrl: string | undefined = undefined;
+      // Prefer hybridGraph.image, then openGraph.image.url, then openGraph.image
+      if (ogData.hybridGraph_image) {
+        singleImageUrl = ogData.hybridGraph_image;
+      } else if (ogData.openGraph_image_url) {
+        singleImageUrl = ogData.openGraph_image_url;
+      } else if (ogData.openGraph_image) {
+        singleImageUrl = ogData.openGraph_image;
+      } else if (ogData.image) {
+        singleImageUrl = ogData.image;
+      }
+      if (singleImageUrl && typeof singleImageUrl === 'string') {
+        // Only set og_image if not empty
+        updatedFrontmatter.og_image = singleImageUrl;
         changed = true;
       }
+
+      // --- Handle array of images ---
+      let imagesArray: string[] = [];
+      if (Array.isArray(ogData.htmlInferred_images)) {
+        imagesArray = ogData.htmlInferred_images;
+      } else if (Array.isArray(ogData.images)) {
+        imagesArray = ogData.images;
+      }
+      if (imagesArray.length > 0) {
+        updatedFrontmatter.og_images = imagesArray;
+        changed = true;
+      }
+
+      // --- Map all other OpenGraph fields to frontmatter as before ---
       if (ogData.og_url) {
         updatedFrontmatter.og_url = ogData.og_url;
         changed = true;
@@ -346,7 +383,7 @@ async function updateFileWithScreenshotUrl(filePath: string, screenshotUrl: stri
 export async function fetchOpenGraphData(
   url: string,
   filePath: string
-): Promise<OpenGraphData | null> {
+): Promise<Record<string, any> | null> {
   // Maximum number of retry attempts
   const MAX_RETRIES = 3;
   
@@ -378,8 +415,8 @@ export async function fetchOpenGraphData(
         throw new Error('Invalid API response: missing hybridGraph');
       }
       
-      // Extract OpenGraph data
-      const ogData: OpenGraphData = {
+      // Extract OpenGraph data with extended image support
+      const ogData: Record<string, any> = {
         image: data.hybridGraph.image || '',
         og_url: data.hybridGraph.url || '',
         video: data.hybridGraph.video || '',
@@ -387,6 +424,12 @@ export async function fetchOpenGraphData(
         site_name: data.hybridGraph.site_name || '',
         title: data.hybridGraph.title || '',
         description: data.hybridGraph.description || '',
+        // Extended image extraction for new mapping logic
+        og_hybrid_image: data.hybridGraph.image || '',
+        og_image_url: data.openGraph?.image?.url || '',
+        og_image: data.openGraph?.image || '',
+        og_inferred_images: Array.isArray(data.htmlInferred?.images) ? data.htmlInferred.images : [],
+        images: Array.isArray(data.images) ? data.images : [],
       };
       
       // Clean up data (remove quotes, etc.)

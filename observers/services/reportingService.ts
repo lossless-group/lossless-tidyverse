@@ -13,6 +13,31 @@ import * as path from 'path';
 import { ValidationResult } from '../types/template';
 
 /**
+ * REPORTING SERVICE USER OPTIONS
+ * 
+ * Options specific to the reporting service, exported for use by other modules (e.g., fileSystemObserver).
+ * - batchReportIntervalMinutes: Number of minutes between automatic batch report generations.
+ *   This controls how often the reporting service will attempt to write a batch report if there are unreported changes.
+ *   Change this value to set your preferred periodicity for batch reporting.
+ */
+export const reportingServiceUserOptions = {
+  batchReportIntervalMinutes: 5, // Default: 5 minutes. Change as needed.
+};
+
+// (Legacy: USER_OPTIONS is deprecated in favor of reportingServiceUserOptions for external use)
+/**
+ * USER_OPTIONS
+ * 
+ * User-configurable options for the reporting service.
+ * - batchReportIntervalMinutes: Number of minutes between automatic batch report generations.
+ *   This controls how often the reporting service will attempt to write a batch report if there are unreported changes.
+ *   Change this value to set your preferred periodicity for batch reporting.
+ */
+export const USER_OPTIONS = {
+  batchReportIntervalMinutes: 5, // Default: 5 minutes. Change as needed.
+};
+
+/**
  * Service for generating and writing reports
  */
 export class ReportingService {
@@ -42,6 +67,16 @@ export class ReportingService {
   };
   
   /**
+   * Tracks the timestamp of the last successfully written report (ms since epoch)
+   */
+  private lastReportTimestamp: number | null = null;
+
+  /**
+   * Tracks whether there have been any changes since the last report was written
+   */
+  private hasUnreportedChanges: boolean = false;
+  
+  /**
    * Create a new ReportingService
    * @param baseDir The base directory for the project
    */
@@ -59,6 +94,7 @@ export class ReportingService {
    */
   logConversion(file: string, fromKey: string, toKey: string): void {
     this.conversionLog.push({ file, fromKey, toKey });
+    this.hasUnreportedChanges = true;
     console.log(`Converting property name from '${fromKey}' to '${toKey}' in ${file}`);
   }
   
@@ -70,8 +106,10 @@ export class ReportingService {
   logValidation(file: string, result: ValidationResult): void {
     if (!result.valid) {
       this.validationIssues.push({ file, result });
+      this.hasUnreportedChanges = true;
     }
     this.processedFiles.push(file);
+    this.hasUnreportedChanges = true;
   }
   
   /**
@@ -82,15 +120,19 @@ export class ReportingService {
   logOpenGraphProcessing(filePath: string, status: 'success' | 'failure' | 'skipped'): void {
     if (status === 'success') {
       this.openGraphStats.succeeded.add(filePath);
+      this.hasUnreportedChanges = true;
       console.log(`✅ Successfully fetched OpenGraph data for ${filePath}`);
     } else if (status === 'failure') {
       this.openGraphStats.failed.add(filePath);
+      this.hasUnreportedChanges = true;
       console.log(`❌ Failed to fetch OpenGraph data for ${filePath}`);
     } else {
       this.openGraphStats.skipped.add(filePath);
+      this.hasUnreportedChanges = true;
       console.log(`⚠️ Skipped OpenGraph fetch for ${filePath} (already has data)`);
     }
     this.openGraphStats.processed++;
+    this.hasUnreportedChanges = true;
   }
   
   /**
@@ -101,9 +143,11 @@ export class ReportingService {
   logScreenshotProcessing(filePath: string, status: 'success' | 'failure'): void {
     if (status === 'success') {
       this.openGraphStats.screenshotSucceeded.add(filePath);
+      this.hasUnreportedChanges = true;
       console.log(`✅ Successfully fetched screenshot URL for ${filePath}`);
     } else {
       this.openGraphStats.screenshotFailed.add(filePath);
+      this.hasUnreportedChanges = true;
       console.log(`❌ Failed to fetch screenshot URL for ${filePath}`);
     }
   }
@@ -114,14 +158,8 @@ export class ReportingService {
    * @param count The number of citations converted
    */
   logCitationConversion(filePath: string, count: number): void {
-    if (count > 0) {
-      console.log(`📝 Converted ${count} citations in ${filePath}`);
-      // Add to processed files if not already there
-      if (!this.processedFiles.includes(filePath)) {
-        this.processedFiles.push(filePath);
-      }
-      this.citationConversions.push({ file: filePath, count });
-    }
+    this.citationConversions.push({ file: filePath, count });
+    this.hasUnreportedChanges = true;
   }
   
   /**
@@ -132,6 +170,7 @@ export class ReportingService {
    */
   logFieldAdded(file: string, field: string, value: any): void {
     this.fieldsAdded.push({ file, field, value });
+    this.hasUnreportedChanges = true;
     console.log(`Added field '${field}' with value '${value}' to ${file}`);
   }
   
@@ -160,6 +199,40 @@ export class ReportingService {
       screenshotSucceeded: new Set<string>(),
       screenshotFailed: new Set<string>()
     };
+  }
+  
+  /**
+   * Returns true if a report has ever been written in this session
+   */
+  hasWrittenReport(): boolean {
+    return this.lastReportTimestamp !== null;
+  }
+
+  /**
+   * Returns true if there are unsaved changes since the last report
+   */
+  hasUnsavedReportChanges(): boolean {
+    return this.hasUnreportedChanges;
+  }
+  
+  /**
+   * Format the processed files as a comma-separated cloud of Obsidian backlinks
+   * @returns Markdown string for the report
+   */
+  private formatProcessedFilesBacklinkCloud(): string {
+    if (this.processedFiles.length === 0) {
+      return 'No files were processed.';
+    }
+    // Deduplicate, preserve order
+    const seen = new Set<string>();
+    const backlinks = this.processedFiles
+      .filter(file => {
+        if (seen.has(file)) return false;
+        seen.add(file);
+        return true;
+      })
+      .map(file => this.createBacklink(file));
+    return backlinks.join(', ');
   }
   
   /**
@@ -199,6 +272,9 @@ time: ${timeString}
 - **Screenshot URL Processing**:
   - **Successfully Fetched**: ${this.openGraphStats.screenshotSucceeded.size}
   - **Failed to Fetch**: ${this.openGraphStats.screenshotFailed.size}
+
+### Files Processed
+${this.formatProcessedFilesBacklinkCloud()}
 
 ### Files with Property Name Conversions
 ${this.formatConversionList()}
@@ -507,12 +583,10 @@ ${this.formatOpenGraphProcessingDetails()}
   async writeReport(): Promise<string | null> {
     // Generate the report
     const report = this.generateReport();
-    
     // Skip writing if no report was generated
     if (!report) {
       return null;
     }
-    
     // Ensure the report directory exists
     try {
       await fs.mkdir(this.reportDirectory, { recursive: true });
@@ -520,20 +594,19 @@ ${this.formatOpenGraphProcessingDetails()}
     } catch (error) {
       console.error(`Error creating report directory: ${error}`);
     }
-    
     const today = new Date();
     const dateString = today.toISOString().split('T')[0];
     const timeString = today.toTimeString().split(' ')[0].replace(/:/g, '-');
-    
     const filename = `frontmatter-observer-${dateString}-${timeString}.md`;
     const filePath = path.join(this.reportDirectory, filename);
-    
     await fs.writeFile(filePath, report, 'utf8');
     console.log(`Report written to ${filePath}`);
-    
     // Reset the logs after writing the report
     this.resetStats();
-    
+    // --- TRACK REPORT STATE ---
+    this.lastReportTimestamp = Date.now();
+    this.hasUnreportedChanges = false;
+    // --- END TRACK REPORT STATE ---
     return filePath;
   }
 }

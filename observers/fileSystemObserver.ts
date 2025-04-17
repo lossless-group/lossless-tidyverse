@@ -1,4 +1,14 @@
 /**
+ * USER_OPTIONS
+ * 
+ * User-configurable options for the observer system.
+ * - batchReportIntervalMinutes: Number of minutes between automatic batch report generations.
+ *   This controls how often the observer will attempt to write a batch report if there are unreported changes.
+ *   Change this value to set your preferred periodicity for batch reporting.
+ */
+// Removed from here, moved to reportingService.ts as requested.
+
+/**
  * File System Observer
  * 
  * Watches for file changes in the content directory and applies frontmatter templates
@@ -19,6 +29,11 @@ import { processOpenGraphMetadata } from './services/openGraphService';
 import { processCitations } from './services/citationService';
 import { formatDate } from './utils/commonUtils'; // Enforce single source of truth for date formatting
 import { formatFrontmatter, extractFrontmatter, updateFrontmatter } from './utils/yamlFrontmatter';
+import { reportingServiceUserOptions } from './services/reportingService';
+
+// Import reportingServiceUserOptions as the single source of truth for batch report interval
+// Use reportingServiceUserOptions.batchReportIntervalMinutes as the single source of truth for interval
+const BATCH_REPORT_INTERVAL_MINUTES = reportingServiceUserOptions.batchReportIntervalMinutes;
 
 // Example usage: replacing all date creation/formatting with formatDate
 // (Below are example replacements; actual usage depends on where you need to create or update date fields)
@@ -32,24 +47,32 @@ import { formatFrontmatter, extractFrontmatter, updateFrontmatter } from './util
 // Instead of:
 // dateCreated: new Date().toISOString(),
 // Use:
-// dateCreated: formatDate(new Date()),
+// dateCreated: formatDate(new Date());
 
 // Instead of:
 // dateUpdated: new Date().toISOString(),
 // Use:
-// dateUpdated: formatDate(new Date()),
+// dateUpdated: formatDate(new Date());
 
 // USER_OPTIONS: Directory-specific configuration for templates and services.
 // Each entry specifies which template and services to use for a directory.
 const USER_OPTIONS = {
   directories: [
     {
-      path: 'tooling',
+      path: 'tooling/Enterprise Jobs-to-be-Done',
       template: 'tooling', // matches a template id
       services: {
         openGraph: true,
         citations: false
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID' },
+        { op: 'updateDateModified' },
+        { op: 'extractFrontmatter', delayMs: 25 },
+        { op: 'fetchOpenGraph', delayMs: 25 },
+        { op: 'updateDateModified', delayMs: 300 },
+        { op: 'validateFrontmatter', delayMs: 25 }
+      ]
     },
     {
       path: 'vocabulary',
@@ -78,6 +101,43 @@ const USER_OPTIONS = {
     // Add more directory configs as needed
   ]
   // Add more global options as needed
+};
+
+// Modular Operation Handlers
+// Each handler receives (frontmatter, filePath) and returns { frontmatter, changed }
+const operationHandlers: Record<string, Function> = {
+  async addSiteUUID(frontmatter: Record<string, any>, filePath: string) {
+    // Add site_uuid if missing
+    if (!frontmatter.site_uuid) {
+      const { generateUUID } = await import('./utils/commonUtils');
+      frontmatter.site_uuid = generateUUID();
+      return { frontmatter, changed: true };
+    }
+    return { frontmatter, changed: false };
+  },
+  async updateDateModified(frontmatter: Record<string, any>, filePath: string) {
+    // Always set date_modified to now
+    const { formatDate } = await import('./utils/commonUtils');
+    frontmatter.date_modified = formatDate(new Date());
+    return { frontmatter, changed: true };
+  },
+  async extractFrontmatter(filePath: string) {
+    // Re-extract frontmatter from file
+    const { extractFrontmatter } = await import('./utils/yamlFrontmatter');
+    const content = await fs.readFile(filePath, 'utf8');
+    const { frontmatter } = extractFrontmatter(content) || {};
+    return { frontmatter, changed: false };
+  },
+  async fetchOpenGraph(frontmatter: Record<string, any>, filePath: string) {
+    // Pass to OpenGraph service, only write if changes
+    // Use static import (see top of file)
+    const ogResult = await processOpenGraphMetadata(frontmatter, filePath);
+    if (ogResult && ogResult.changed && ogResult.updatedFrontmatter) {
+      Object.assign(frontmatter, ogResult.updatedFrontmatter);
+      return { frontmatter, changed: true };
+    }
+    return { frontmatter, changed: false };
+  }
 };
 
 /**
@@ -212,22 +272,26 @@ async function validateAndUpdateFrontmatter(
   filePath: string,
   template: MetadataTemplate,
   templateRegistry: TemplateRegistry,
-  reportingService: ReportingService
+  reportingService: ReportingService,
+  frontmatter?: Record<string, any>
 ): Promise<void> {
   try {
     // Read file content
     const content = await fs.readFile(filePath, 'utf8');
-    let frontmatter = extractFrontmatter(content) || {};
+    let frontmatterToUse = frontmatter;
+    if (!frontmatterToUse) {
+      frontmatterToUse = extractFrontmatter(content) || {};
+    }
 
     // Validate frontmatter against template
-    const validationResult = templateRegistry.validateAgainstTemplate(frontmatter, template);
+    const validationResult = templateRegistry.validateAgainstTemplate(frontmatterToUse, template);
     if (!validationResult.valid) {
       reportValidationErrors(filePath, validationResult, reportingService);
     }
 
     // Add missing required fields
     const { updatedFrontmatter, changed } = await addMissingRequiredFields(
-      frontmatter,
+      frontmatterToUse,
       template,
       filePath,
       reportingService
@@ -369,6 +433,58 @@ export class FileSystemObserver {
   }
 
   /**
+   * Process a file with directory-specific config (template & services)
+   * @param filePath The file path
+   * @param dirConfig The config object for the directory
+   */
+  private async processFileWithConfig(filePath: string, dirConfig: any): Promise<void> {
+    const template = this.templateRegistry.getAllTemplates().find(t => t.id === dirConfig.template);
+    if (!template) {
+      console.warn(`No template found for id ${dirConfig.template}, skipping ${filePath}`);
+      return;
+    }
+
+    // Determine operation sequence (default to legacy behavior if not set)
+    const sequence = dirConfig.operationSequence || [
+      { op: 'addSiteUUID' },
+      { op: 'updateDateModified' },
+      { op: 'fetchOpenGraph' }
+    ];
+
+    // Extract initial frontmatter
+    let { frontmatter } = extractFrontmatter(await fs.readFile(filePath, 'utf8')) || { frontmatter: {} };
+
+    // Aggressive comment: Run each operation in sequence, re-extracting frontmatter after writes
+    for (const step of sequence) {
+      const handler = operationHandlers[step.op];
+      if (!handler) {
+        console.warn(`No handler for operation ${step.op}`);
+        continue;
+      }
+      const result = await handler(frontmatter, filePath);
+      if (result.changed) {
+        // Write updated frontmatter to disk
+        const content = await fs.readFile(filePath, 'utf8');
+        const updatedContent = updateFrontmatter(content, result.frontmatter);
+        await fs.writeFile(filePath, updatedContent, 'utf8');
+        // Optionally add to recently modified set, etc.
+      }
+      // After each write, re-extract frontmatter for next step
+      if (result.changed || step.op === 'extractFrontmatter') {
+        const { frontmatter: newFrontmatter } = extractFrontmatter(await fs.readFile(filePath, 'utf8')) || {};
+        frontmatter = newFrontmatter;
+      }
+      // Delay if specified
+      if (step.delayMs) {
+        await new Promise(res => setTimeout(res, step.delayMs));
+      }
+    }
+
+    // Final validation and update using template
+    await validateAndUpdateFrontmatter(filePath, template, this.templateRegistry, this.reportingService, frontmatter);
+  }
+
+  /**
    * Set up event handlers
    */
   setupEventHandlers(): void {
@@ -401,7 +517,7 @@ export class FileSystemObserver {
     setInterval(() => {
       console.log('Generating periodic report...');
       this.reportingService.generateReport();
-    }, 60 * 60 * 1000); // 1 hour
+    }, BATCH_REPORT_INTERVAL_MINUTES * 60 * 1000); // Convert minutes to ms
     
     // Also set up a handler for process termination to generate a final report
     process.on('SIGINT', () => {
@@ -426,31 +542,6 @@ export class FileSystemObserver {
     });
   }
   
-  /**
-   * Process a file with directory-specific config (template & services)
-   * @param filePath The file path
-   * @param dirConfig The config object for the directory
-   */
-  private async processFileWithConfig(filePath: string, dirConfig: any): Promise<void> {
-    // Find the template by id (assume templateRegistry has a getTemplateById method)
-    // FIX: Use getAllTemplates and match by id (which is the string in USER_OPTIONS)
-    const template = this.templateRegistry.getAllTemplates().find(t => t.id === dirConfig.template);
-    if (!template) {
-      console.warn(`No template found for id ${dirConfig.template}, skipping ${filePath}`);
-      return;
-    }
-    // Process citations if enabled
-    if (dirConfig.services.citations) {
-      await this.processCitationsInFile(filePath);
-    }
-    // Process OpenGraph if enabled
-    if (dirConfig.services.openGraph) {
-      await processOpenGraphMetadata(undefined, filePath);
-    }
-    // Validate and update frontmatter using the template
-    await validateAndUpdateFrontmatter(filePath, template, this.templateRegistry, this.reportingService);
-  }
-
   /**
    * Process citations in a file
    * @param filePath The path to the file

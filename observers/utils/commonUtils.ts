@@ -117,3 +117,23 @@ export function getCurrentDate(): string {
   // Use the formatDate function to ensure consistent formatting
   return formatDate(new Date()) as string;
 }
+
+/**
+ * Converts a string to Train-Case (first letter of each word capitalized, joined with hyphens)
+ *
+ * This function is the single source of truth for Train-Case normalization across the observer system.
+ * Use for generating canonical slugs, URLs, or normalized tags from arbitrary strings.
+ *
+ * @param str The string to convert
+ * @returns The string in Train-Case
+ */
+export function convertToTrainCase(str: string): string {
+  if (!str) return '';
+  // Replace underscores and spaces with hyphens
+  let result = str.replace(/[_\s]+/g, '-');
+  // Capitalize first letter of each word
+  result = result.replace(/(^|\-)([a-z])/g, (match, separator, letter) => {
+    return separator + letter.toUpperCase();
+  });
+  return result;
+}
