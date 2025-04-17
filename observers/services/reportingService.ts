@@ -47,6 +47,7 @@ export class ReportingService {
   private processedFiles: string[] = [];
   private citationConversions: Array<{file: string, count: number}> = [];
   private fieldsAdded: Array<{file: string, field: string, value: any}> = [];
+  private yamlReorderEvents: Array<{file: string, previousOrder: string[], newOrder: string[], reorderedFields?: string[]}> | null = null;
   
   /**
    * OpenGraph processing statistics
@@ -175,6 +176,24 @@ export class ReportingService {
   }
   
   /**
+   * Log a YAML property order change (reordering frontmatter to match template)
+   * @param file The file where YAML was reordered
+   * @param previousOrder The array of keys before reordering
+   * @param newOrder The array of keys after reordering
+   * @param reorderedFields The array of keys that were actually moved (optional, for clarity)
+   */
+  logFileYamlReorder(file: string, previousOrder: string[], newOrder: string[], reorderedFields?: string[]): void {
+    // Store as a log entry for reporting
+    if (!this.yamlReorderEvents) this.yamlReorderEvents = [];
+    this.yamlReorderEvents.push({ file, previousOrder, newOrder, reorderedFields });
+    this.hasUnreportedChanges = true;
+    console.log(`[ReportingService] YAML property order changed in ${file}`);
+    if (reorderedFields && reorderedFields.length > 0) {
+      console.log(`[ReportingService] Fields reordered: ${reorderedFields.join(', ')}`);
+    }
+  }
+  
+  /**
    * Check if any files have been processed
    * @returns True if any files have been processed, false otherwise
    */
@@ -191,6 +210,7 @@ export class ReportingService {
     this.processedFiles = [];
     this.citationConversions = [];
     this.fieldsAdded = [];
+    this.yamlReorderEvents = null;
     this.openGraphStats = {
       processed: 0,
       succeeded: new Set<string>(),
@@ -264,6 +284,7 @@ time: ${timeString}
 - **Validation Issues**: ${this.validationIssues.length}
 - **Fields Added**: ${this.fieldsAdded.length}
 - **Citation Conversions**: ${this.citationConversions.length}
+- **YAML Property Reorders**: ${this.yamlReorderEvents ? this.yamlReorderEvents.length : 0}
 - **OpenGraph Processing**:
   - **Total Processed**: ${this.openGraphStats.processed}
   - **Successfully Fetched**: ${this.openGraphStats.succeeded.size}
@@ -287,6 +308,9 @@ ${this.formatFieldsAdded()}
 
 ### Files with Citation Conversions
 ${this.formatCitationConversions()}
+
+### YAML Property Reordering Events
+${this.formatYamlReorders()}
 
 ## OpenGraph Processing Details
 ${this.formatOpenGraphProcessingDetails()}
@@ -528,6 +552,25 @@ ${this.formatOpenGraphProcessingDetails()}
       result += backlinks.join(', ') + '\n\n';
     }
     
+    return result;
+  }
+  
+  /**
+   * Format YAML reorder events for the report
+   * @returns A formatted string
+   */
+  private formatYamlReorders(): string {
+    if (!this.yamlReorderEvents || this.yamlReorderEvents.length === 0) {
+      return 'No YAML property reordering events.';
+    }
+    let result = '## YAML Property Reordering Events\n\n';
+    for (const event of this.yamlReorderEvents) {
+      result += `- ${event.file}\n  Previous order: ${event.previousOrder.join(', ')}\n  New order: ${event.newOrder.join(', ')}`;
+      if (event.reorderedFields && event.reorderedFields.length > 0) {
+        result += `\n  Fields reordered: ${event.reorderedFields.join(', ')}`;
+      }
+      result += '\n';
+    }
     return result;
   }
   

@@ -67,7 +67,8 @@ async function main() {
   
   // Create and start file system observer
   const observer = new FileSystemObserver(templateRegistry, reportingService, contentRoot);
-  
+  // === CRITICAL: Explicitly start the persistent watcher ===
+  observer.startObserver();
   console.log('Observer started. Press Ctrl+C to exit.');
   
   // Handle shutdown gracefully

@@ -18,25 +18,26 @@ import * as path from 'path';
 import fetch from 'node-fetch';
 import * as dotenv from 'dotenv';
 import { formatFrontmatter } from '../utils/yamlFrontmatter';
+import { extractStringValueForFrontmatter } from '../utils/extractStringValueForFrontmatter';
 
 // Load environment variables
 dotenv.config();
 
-/**
+/*
  * Interface for OpenGraph data returned from API.
  * All properties are optional and map directly to Markdown frontmatter keys.
  * If the API response contains a canonical URL, it is mapped as 'og_url'.
  */
-interface OpenGraphData {
-  image?: string;
-  og_url?: string;
-  video?: string;
-  favicon?: string;
-  site_name?: string;
-  title?: string;
-  description?: string;
-  [key: string]: string | undefined;
-}
+// interface OpenGraphData {
+//   image?: string;
+//   og_url?: string;
+//   video?: string;
+//   favicon?: string;
+//   site_name?: string;
+//   title?: string;
+//   description?: string;
+//   [key: string]: string | undefined;
+// }
 
 /**
  * Process OpenGraph metadata for a file with frontmatter
@@ -97,22 +98,30 @@ export async function processOpenGraphMetadata(
     // Add more as needed based on project prompt
   ];
 
-  // Only run OpenGraph API if any of these fields are missing or empty
+  // Only run OpenGraph API if any of these fields are missing or empty (normalized check)
   const needsOpenGraph = ogFields.some(
-    (key) => !updatedFrontmatter[key] || (Array.isArray(updatedFrontmatter[key]) ? updatedFrontmatter[key].length === 0 : updatedFrontmatter[key].toString().trim() === '')
+    (key) => !extractStringValueForFrontmatter(updatedFrontmatter[key])
   );
 
-  // Only run screenshot API if og_screenshot_url is missing or empty
-  const needsScreenshot = !updatedFrontmatter.og_screenshot_url || updatedFrontmatter.og_screenshot_url.toString().trim() === '';
+  // Only run screenshot API if og_screenshot_url is missing or empty (normalized check)
+  const needsScreenshot = !extractStringValueForFrontmatter(updatedFrontmatter.og_screenshot_url);
+
+  // --- LOGGING: Initial State ---
+  console.log('[OpenGraph] processOpenGraphMetadata called for', effectiveFilePath);
+  console.log('[OpenGraph] Initial updatedFrontmatter:', JSON.stringify(updatedFrontmatter, null, 2));
+  console.log('[OpenGraph] needsScreenshot:', needsScreenshot, 'needsOpenGraph:', needsOpenGraph);
 
   // --- Fetch Screenshot if needed ---
   if (needsScreenshot) {
+    console.log('[OpenGraph] Calling fetchScreenshotUrlInBackground with URL:', updatedFrontmatter.url || updatedFrontmatter.link);
     fetchScreenshotUrlInBackground(updatedFrontmatter.url || updatedFrontmatter.link, effectiveFilePath!);
   }
 
   // --- Fetch OpenGraph Data if needed ---
   if (needsOpenGraph) {
+    console.log('[OpenGraph] Calling fetchOpenGraphData with URL:', updatedFrontmatter.url || updatedFrontmatter.link);
     const ogData = await fetchOpenGraphData(updatedFrontmatter.url || updatedFrontmatter.link, effectiveFilePath!);
+    console.log('[OpenGraph] fetchOpenGraphData result:', JSON.stringify(ogData, null, 2));
     if (ogData) {
       // --- BEGIN: OpenGraph Image Handling ---
       // 1. Do NOT overwrite existing 'image' or 'images' properties
@@ -120,69 +129,37 @@ export async function processOpenGraphMetadata(
       // 3. Map arrays of image URLs to 'og_images' (array of bare, full URLs)
       // 4. Never quote or truncate URLs
 
-      // Preserve existing 'image' and 'images' if present
-      const hasImage = Object.prototype.hasOwnProperty.call(updatedFrontmatter, 'image');
-      const hasImages = Object.prototype.hasOwnProperty.call(updatedFrontmatter, 'images');
-
-      // --- Handle singular image ---
-      let singleImageUrl: string | undefined = undefined;
-      // Prefer hybridGraph.image, then openGraph.image.url, then openGraph.image
-      if (ogData.hybridGraph_image) {
-        singleImageUrl = ogData.hybridGraph_image;
-      } else if (ogData.openGraph_image_url) {
-        singleImageUrl = ogData.openGraph_image_url;
-      } else if (ogData.openGraph_image) {
-        singleImageUrl = ogData.openGraph_image;
-      } else if (ogData.image) {
-        singleImageUrl = ogData.image;
-      }
-      if (singleImageUrl && typeof singleImageUrl === 'string') {
-        // Only set og_image if not empty
-        updatedFrontmatter.og_image = singleImageUrl;
-        changed = true;
+      // --- Normalize OpenGraph API results before merging ---
+      // Defensive: Always normalize fields before merging into frontmatter
+      const normalizedOgData: Record<string, any> = {};
+      for (const key of Object.keys(ogData)) {
+        normalizedOgData[key] = extractStringValueForFrontmatter(ogData[key]);
       }
 
-      // --- Handle array of images ---
-      let imagesArray: string[] = [];
-      if (Array.isArray(ogData.htmlInferred_images)) {
-        imagesArray = ogData.htmlInferred_images;
-      } else if (Array.isArray(ogData.images)) {
-        imagesArray = ogData.images;
-      }
-      if (imagesArray.length > 0) {
-        updatedFrontmatter.og_images = imagesArray;
-        changed = true;
+      // Merge normalized OpenGraph data into updatedFrontmatter
+      let ogFieldChanged = false; // Track if any real OG field changed
+      for (const key of Object.keys(normalizedOgData)) {
+        if (normalizedOgData[key] && updatedFrontmatter[key] !== normalizedOgData[key]) {
+          updatedFrontmatter[key] = normalizedOgData[key];
+          ogFieldChanged = true;
+        }
       }
 
-      // --- Map all other OpenGraph fields to frontmatter as before ---
-      if (ogData.og_url) {
-        updatedFrontmatter.og_url = ogData.og_url;
+      // Only update og_last_fetch and set changed if a real OG field changed
+      if (ogFieldChanged) {
+        updatedFrontmatter.og_last_fetch = new Date().toISOString();
         changed = true;
+        console.log('[OpenGraph] ogFieldChanged=true, updated og_last_fetch and will return changed=true');
+      } else {
+        // Aggressive logging for debugging: log when OG fetch is a no-op
+        console.log(`[OpenGraph] No frontmatter fields updated for ${effectiveFilePath}, skipping og_last_fetch update.`);
       }
-      if (ogData.video) {
-        updatedFrontmatter.video = ogData.video;
-        changed = true;
-      }
-      if (ogData.favicon) {
-        updatedFrontmatter.favicon = ogData.favicon;
-        changed = true;
-      }
-      if (ogData.site_name) {
-        updatedFrontmatter.site_name = ogData.site_name;
-        changed = true;
-      }
-      if (ogData.title) {
-        updatedFrontmatter.title = ogData.title;
-        changed = true;
-      }
-      if (ogData.description) {
-        updatedFrontmatter.description = ogData.description;
-        changed = true;
-      }
-      updatedFrontmatter.og_last_fetch = new Date().toISOString();
-      changed = true;
     }
   }
+
+  // --- LOGGING: Final State ---
+  console.log('[OpenGraph] Final updatedFrontmatter:', JSON.stringify(updatedFrontmatter, null, 2));
+  console.log('[OpenGraph] Returning changed:', changed);
 
   return { updatedFrontmatter, changed };
 }
