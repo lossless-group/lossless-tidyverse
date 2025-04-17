@@ -23,106 +23,131 @@ import { formatFrontmatter } from '../utils/yamlFrontmatter';
 dotenv.config();
 
 /**
- * Interface for OpenGraph data returned from API
+ * Interface for OpenGraph data returned from API.
+ * All properties are optional and map directly to Markdown frontmatter keys.
+ * If the API response contains a canonical URL, it is mapped as 'og_url'.
  */
 interface OpenGraphData {
-  og_title: string;
-  og_description: string;
-  og_image: string;
-  og_url: string;
-  og_last_fetch: string;
-  [key: string]: string; // Index signature to allow string indexing
+  image?: string;
+  og_url?: string;
+  video?: string;
+  favicon?: string;
+  site_name?: string;
+  title?: string;
+  description?: string;
+  [key: string]: string | undefined;
 }
 
 /**
  * Process OpenGraph metadata for a file with frontmatter
- * @param frontmatter The frontmatter object
- * @param filePath The path to the file
+ *
+ * If only filePath is provided, the function will read and parse frontmatter from the file.
+ * If both frontmatter and filePath are provided, it will use the provided frontmatter.
+ * If neither is provided, an error is thrown.
+ *
+ * @param frontmatter The frontmatter object (optional)
+ * @param filePath The path to the file (optional)
  * @returns The updated frontmatter and whether it was changed
  */
 export async function processOpenGraphMetadata(
-  frontmatter: Record<string, any>,
-  filePath: string
+  frontmatter?: Record<string, any>,
+  filePath?: string
 ): Promise<{ updatedFrontmatter: Record<string, any>; changed: boolean }> {
-  // Create a copy of the frontmatter to avoid modifying the original
-  const updatedFrontmatter = { ...frontmatter };
+  // Defensive: If neither argument is provided, throw
+  if (!frontmatter && !filePath) {
+    throw new Error('Must provide at least a filePath or frontmatter to processOpenGraphMetadata');
+  }
+
+  let effectiveFrontmatter: Record<string, any> | undefined = frontmatter;
+  let effectiveFilePath: string | undefined = filePath;
+
+  // If only filePath is provided, read and parse frontmatter from the file
+  if (!effectiveFrontmatter && effectiveFilePath) {
+    try {
+      const fileContent = await fs.readFile(effectiveFilePath, 'utf8');
+      const { frontmatter: parsed } = extractFrontmatterForOpenGraph(fileContent);
+      if (!parsed) {
+        throw new Error(`No frontmatter found in file: ${effectiveFilePath}`);
+      }
+      effectiveFrontmatter = parsed;
+    } catch (err) {
+      throw new Error(`Failed to read or parse frontmatter from file: ${effectiveFilePath}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // If only frontmatter is provided, require filePath for logging/context
+  if (effectiveFrontmatter && !effectiveFilePath) {
+    throw new Error('If providing frontmatter directly, filePath must also be provided for OpenGraph operations.');
+  }
+
+  const updatedFrontmatter = { ...effectiveFrontmatter };
   let changed = false;
-  
-  try {
-    // Check if the frontmatter has a URL field
-    const url = updatedFrontmatter.url || updatedFrontmatter.link;
-    
-    if (!url) {
-      console.log(`No URL found in frontmatter for ${filePath}`);
-      return { updatedFrontmatter, changed };
-    }
-    
-    // Process screenshot URL asynchronously if it doesn't exist
-    if (!updatedFrontmatter.og_screenshot_url) {
-      // Don't await this promise - let it run in the background
-      fetchScreenshotUrlInBackground(url, filePath);
-    }
-    
-    // NEVER process OpenGraph data for files that already have it unless explicitly requested
-    if (updatedFrontmatter.og_last_fetch && !updatedFrontmatter.og_refresh_needed) {
-      console.log(`Skipping OpenGraph fetch for ${filePath} - already has OpenGraph data and no refresh requested`);
-      return { updatedFrontmatter, changed };
-    }
-    
-    // Skip if the file already has OpenGraph metadata and no refresh is needed
-    if (
-      updatedFrontmatter.og_title && 
-      updatedFrontmatter.og_description && 
-      updatedFrontmatter.og_image &&
-      !updatedFrontmatter.og_refresh_needed
-    ) {
-      console.log(`OpenGraph metadata already exists for ${filePath}`);
-      return { updatedFrontmatter, changed };
-    }
-    
-    // Fetch OpenGraph data
-    console.log(`Fetching OpenGraph data for ${url} (${filePath})`);
-    const ogData = await fetchOpenGraphData(url, filePath);
-    
+
+  // --- BEGIN: OpenGraph Field Existence Checks ---
+  // Canonical OpenGraph fields for frontmatter
+  const ogFields = [
+    'image',
+    'og_url',
+    'video',
+    'favicon',
+    'site_name',
+    'title',
+    'description',
+    // Add more as needed based on project prompt
+  ];
+
+  // Only run OpenGraph API if any of these fields are missing or empty
+  const needsOpenGraph = ogFields.some(
+    (key) => !updatedFrontmatter[key] || updatedFrontmatter[key].toString().trim() === ''
+  );
+
+  // Only run screenshot API if og_screenshot_url is missing or empty
+  const needsScreenshot = !updatedFrontmatter.og_screenshot_url || updatedFrontmatter.og_screenshot_url.toString().trim() === '';
+
+  // --- Fetch Screenshot if needed ---
+  if (needsScreenshot) {
+    fetchScreenshotUrlInBackground(updatedFrontmatter.url || updatedFrontmatter.link, effectiveFilePath!);
+  }
+
+  // --- Fetch OpenGraph Data if needed ---
+  if (needsOpenGraph) {
+    const ogData = await fetchOpenGraphData(updatedFrontmatter.url || updatedFrontmatter.link, effectiveFilePath!);
     if (ogData) {
-      // Update frontmatter with OpenGraph data
-      updatedFrontmatter.og_title = ogData.og_title;
-      updatedFrontmatter.og_description = ogData.og_description;
-      updatedFrontmatter.og_image = ogData.og_image;
-      updatedFrontmatter.og_url = ogData.og_url;
-      updatedFrontmatter.og_last_fetch = ogData.og_last_fetch;
-      
-      // Remove refresh flag if it exists
-      if (updatedFrontmatter.og_refresh_needed) {
-        delete updatedFrontmatter.og_refresh_needed;
+      // Map OpenGraph fields to frontmatter, always as plain string
+      if (ogData.image) {
+        updatedFrontmatter.image = ogData.image;
+        changed = true;
       }
-      
-      // Remove error if it exists (since we now have valid data)
-      if (updatedFrontmatter.og_error) {
-        delete updatedFrontmatter.og_error;
+      if (ogData.og_url) {
+        updatedFrontmatter.og_url = ogData.og_url;
+        changed = true;
       }
-      
-      changed = true;
-      console.log(`Updated OpenGraph metadata for ${filePath}`);
-    } else if (updatedFrontmatter.og_error === undefined) {
-      // Only set error if there isn't one already
-      updatedFrontmatter.og_error = "Failed to fetch OpenGraph data";
+      if (ogData.video) {
+        updatedFrontmatter.video = ogData.video;
+        changed = true;
+      }
+      if (ogData.favicon) {
+        updatedFrontmatter.favicon = ogData.favicon;
+        changed = true;
+      }
+      if (ogData.site_name) {
+        updatedFrontmatter.site_name = ogData.site_name;
+        changed = true;
+      }
+      if (ogData.title) {
+        updatedFrontmatter.title = ogData.title;
+        changed = true;
+      }
+      if (ogData.description) {
+        updatedFrontmatter.description = ogData.description;
+        changed = true;
+      }
       updatedFrontmatter.og_last_fetch = new Date().toISOString();
       changed = true;
-      console.log(`Failed to fetch OpenGraph data for ${filePath}`);
     }
-    
-    return { updatedFrontmatter, changed };
-  } catch (error: unknown) {
-    console.error(`Error processing OpenGraph metadata for ${filePath}:`, error);
-    
-    // Add error information to frontmatter
-    updatedFrontmatter.og_error = error instanceof Error ? error.message : "Unknown error fetching OpenGraph data";
-    updatedFrontmatter.og_last_fetch = new Date().toISOString();
-    changed = true;
-    
-    return { updatedFrontmatter, changed };
   }
+
+  return { updatedFrontmatter, changed };
 }
 
 // Set to track URLs that are currently being processed for screenshots
@@ -149,7 +174,7 @@ function fetchScreenshotUrlInBackground(url: string, filePath: string): void {
   // Don't await this promise - let it run in the background
   (async () => {
     try {
-      const screenshotUrl = await fetchScreenshotUrl(url, filePath);
+      const screenshotUrl = await fetchScreenshotUrl(url);
       
       if (screenshotUrl) {
         console.log(`✅ Received screenshot URL for ${url} in background process: ${screenshotUrl}`);
@@ -355,11 +380,13 @@ export async function fetchOpenGraphData(
       
       // Extract OpenGraph data
       const ogData: OpenGraphData = {
-        og_title: data.hybridGraph.title || '',
-        og_description: data.hybridGraph.description || '',
-        og_image: data.hybridGraph.image || '',
-        og_url: data.hybridGraph.url || url,
-        og_last_fetch: new Date().toISOString()
+        image: data.hybridGraph.image || '',
+        og_url: data.hybridGraph.url || '',
+        video: data.hybridGraph.video || '',
+        favicon: data.hybridGraph.favicon || '',
+        site_name: data.hybridGraph.site_name || '',
+        title: data.hybridGraph.title || '',
+        description: data.hybridGraph.description || '',
       };
       
       // Clean up data (remove quotes, etc.)
@@ -390,14 +417,15 @@ export async function fetchOpenGraphData(
 }
 
 /**
- * Fetch a screenshot URL for a website
+ * Fetches a screenshot URL from the OpenGraph.io API for the provided URL.
+ *
  * @param url The URL to fetch a screenshot for
- * @param filePath The path to the file (for logging)
  * @returns The screenshot URL or null if the fetch failed
+ *
+ * NOTE: 'filePath' is not required for the API call and is not used here. All file updates are handled by separate, atomic, validated functions.
  */
 export async function fetchScreenshotUrl(
-  url: string,
-  filePath: string
+  url: string
 ): Promise<string | null> {
   // Maximum number of retry attempts
   const MAX_RETRIES = 2;

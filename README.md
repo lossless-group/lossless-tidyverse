@@ -8,7 +8,18 @@ Let's aggregate all that here.
 # Initiatives:
 I'm trying to create an "observer" that uses the node filesystem built in functions to watch for changes in the content submodule and then enforce various yaml standards.  
 
+# What's worked:
+
+## Assure one UUID per file
+
+## Assure proper frontmatter delimiters per property
+
+
+## Assure frontmatter formatting
+
 # Directory Structure
+
+
 
 <pre>
 <span style="font-weight:bold;color:teal;">.</span>

@@ -222,19 +222,23 @@ ${this.formatOpenGraphProcessingDetails()}
   /**
    * Helper method to create a properly formatted backlink
    * @param filePath The absolute file path
-   * @returns A formatted backlink string [[path/to/file.md|Display Name]]
+   * @returns A formatted backlink string [[articles/2025-04-16-example.md|2025-04-16-example.md|2025-04-16 example]]
    */
   private createBacklink(filePath: string): string {
-    const basename = path.basename(filePath);
+    const basename = path.basename(filePath); // e.g., 2025-04-16-example.md
     const displayName = basename.replace(/\.md$/, '');
-    
-    // Extract the relative path from the content directory
-    // Format: /path/to/content/dir/file.md -> dir/file.md
+
+    // Human-friendly label: replace hyphens with spaces, remove .md
+    const label = displayName.replace(/-/g, ' ');
+
+    // Extract the relative path from the content directory, but EXCLUDE 'content/'
+    // Format: /path/to/content/articles/file.md -> articles/file.md
     const relativePath = filePath
       .replace(/^.*?\/content\//, '')  // Remove everything up to and including /content/
+      .replace(/^content\//, '')        // Remove 'content/' if it remains
       .replace(/\.md$/, '.md');        // Ensure .md extension is preserved
-    
-    return `[[${relativePath}|${displayName}]]`;
+
+    return `[[${relativePath}|${displayName}|${label}]]`;
   }
   
   /**

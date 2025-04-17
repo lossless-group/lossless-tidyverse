@@ -52,6 +52,15 @@ export function formatFrontmatter(frontmatter: Record<string, any>): string {
     else if (value === null) {
       yamlContent += `${key}: null\n`;
     }
+    // FORCE SINGLE QUOTES FOR ERROR MESSAGES (project-wide rule)
+    else if (
+      typeof value === 'string' &&
+      (key.endsWith('_error') || key.endsWith('_error_message') || key === 'og_error_message')
+    ) {
+      // Always wrap error messages in single quotes, escaping inner single quotes
+      const singleQuoted = `'${value.replace(/'/g, "''")}'`;
+      yamlContent += `${key}: ${singleQuoted}\n`;
+    }
     // Handle string values - PRESERVE original formatting
     else if (typeof value === 'string') {
       // Check if this is a URL or contains special characters that need quotes
