@@ -20,6 +20,7 @@ export interface DirectoryConfig {
     citations: boolean;
     reorderYamlToTemplate?: boolean; // If true, output YAML will be reordered to match template property order
     logging?: {
+      extractedFrontmatter?: boolean;
       addSiteUUID?: boolean;
       openGraph?: boolean;
     };
@@ -42,6 +43,7 @@ export const USER_OPTIONS: UserOptions = {
         citations: false,
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
+          extractedFrontmatter: true,
           addSiteUUID: true,
           openGraph: true
         }

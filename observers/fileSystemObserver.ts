@@ -5,7 +5,7 @@
 // =============================================
 
 import chokidar from 'chokidar';
-import { extractFrontmatter, writeFrontmatterToFile } from './utils/yamlFrontmatter';
+import { extractFrontmatter, writeFrontmatterToFile, reportPotentialFrontmatterInconsistencies } from './utils/yamlFrontmatter';
 import fs from 'fs';
 import { TemplateRegistry } from './services/templateRegistry';
 import { ReportingService } from './services/reportingService';
@@ -69,8 +69,10 @@ export class FileSystemObserver {
 
   /**
    * Handles file change events (add/change) for Markdown files.
-   * Reads the file, extracts frontmatter, injects UUID if needed, and writes back if changed.
-   * Aggressively, continuously commented per project rules.
+   * Implements the atomic propertyCollector and expectation management pattern.
+   * Each subsystem/service receives the full extracted frontmatter, returns an expectation object,
+   * and, if acting, returns only changed key-value pairs. The observer merges all results and writes once.
+   * Aggressively commented per project rules.
    *
    * @param filePath - Path to the changed Markdown file
    */
@@ -80,23 +82,99 @@ export class FileSystemObserver {
     try {
       // Read file content
       const fileContent = fs.readFileSync(filePath, 'utf-8');
-      // Extract frontmatter
-      let frontmatter = extractFrontmatter(fileContent);
-      if (frontmatter) {
-        // === Inject UUID into frontmatter object ===
-        frontmatter = addSiteUUID(frontmatter, filePath);
-        // === Write updated frontmatter back to file ===
-        // Aggressively commented: This persists any changes made by addSiteUUID
-        await writeFrontmatterToFile(filePath, frontmatter);
-        // === Log updated frontmatter ===
-        console.log(`[Observer] Frontmatter for ${filePath}:`, frontmatter);
-      } else {
+      // Extract frontmatter (single source of truth)
+      const originalFrontmatter = extractFrontmatter(fileContent);
+      if (!originalFrontmatter) {
         // Warn if no valid frontmatter found
         console.warn(`[Observer] No valid frontmatter found in ${filePath}`);
+        return;
+      }
+
+      // === Log extracted frontmatter BEFORE any modification, if enabled in USER_OPTIONS ===
+      if (this.directoryConfig.services.logging?.extractedFrontmatter) {
+        console.log(`[Observer] [EXTRACTED] Frontmatter for ${filePath}:`, originalFrontmatter);
+      }
+
+      // === Interface for property expectations ===
+      interface PropertyExpectations {
+        expectSiteUUID: boolean;
+        expectOpenGraph: boolean;
+        // Add more expectation flags as needed
+      }
+
+      // === Atomic Property Collector & Expectation Management ===
+      // propertyCollector: holds the working frontmatter and expectations/results
+      const propertyCollector: {
+        expectations: PropertyExpectations;
+        results: Record<string, any>;
+      } = {
+        expectations: {
+          expectSiteUUID: false,
+          expectOpenGraph: false,
+        },
+        results: {},      // key-value pairs to merge
+      };
+      let workingFrontmatter = { ...originalFrontmatter };
+
+      // --- 1. Evaluate all subsystems and collect expectations ---
+      // (a) Site UUID
+      const { expectSiteUUID } = await import('./handlers/addSiteUUID').then(mod => mod.evaluateSiteUUID(workingFrontmatter, filePath));
+      propertyCollector.expectations.expectSiteUUID = expectSiteUUID;
+      // (b) OpenGraph
+      const { expectOpenGraph } = await import('./services/openGraphService').then(mod => mod.evaluateOpenGraph(workingFrontmatter, filePath));
+      propertyCollector.expectations.expectOpenGraph = expectOpenGraph;
+
+      // --- 2. Execute all subsystems that need to act, collect results ---
+      // (a) Site UUID (sync)
+      if (propertyCollector.expectations.expectSiteUUID) {
+        const { site_uuid } = await import('./handlers/addSiteUUID').then(mod => mod.addSiteUUID(workingFrontmatter, filePath));
+        if (site_uuid && site_uuid !== originalFrontmatter.site_uuid) {
+          propertyCollector.results.site_uuid = site_uuid;
+          workingFrontmatter.site_uuid = site_uuid;
+          if (this.directoryConfig.services.logging?.addSiteUUID) {
+            console.log(`[Observer] [addSiteUUID] site_uuid added for ${filePath}:`, site_uuid);
+          }
+        }
+        propertyCollector.expectations.expectSiteUUID = false;
+      }
+      // (b) OpenGraph (async)
+      if (propertyCollector.expectations.expectOpenGraph) {
+        const { ogKeyValues } = await import('./services/openGraphService').then(mod => mod.processOpenGraphKeyValues(workingFrontmatter, filePath));
+        if (ogKeyValues && Object.keys(ogKeyValues).length > 0) {
+          Object.assign(propertyCollector.results, ogKeyValues);
+          Object.assign(workingFrontmatter, ogKeyValues);
+          if (this.directoryConfig.services.logging?.openGraph) {
+            console.log(`[Observer] [fetchOpenGraph] OpenGraph properties updated for ${filePath}:`, ogKeyValues);
+          }
+        }
+        propertyCollector.expectations.expectOpenGraph = false;
+      }
+
+      // --- 3. Final merge, update date_modified, write if any changes ---
+      if (Object.keys(propertyCollector.results).length > 0) {
+        // Update date_modified first
+        const dateNow = new Date().toISOString();
+        propertyCollector.results.date_modified = dateNow;
+        workingFrontmatter.date_modified = dateNow;
+        // Merge and write
+        const updatedFrontmatter = { ...originalFrontmatter, ...propertyCollector.results };
+        await writeFrontmatterToFile(filePath, updatedFrontmatter);
+        // Store audit info (could be improved with a persistent store)
+        if (!globalThis.__observerAudit) globalThis.__observerAudit = {};
+        globalThis.__observerAudit[filePath] = dateNow;
+        // Logging: final frontmatter written
+        if (this.directoryConfig.services.logging?.extractedFrontmatter) {
+          console.log(`[Observer] [FINAL] Final frontmatter for ${filePath}:`, updatedFrontmatter);
+        }
+      } else {
+        // Logging: no changes, no write performed
+        if (this.directoryConfig.services.logging?.extractedFrontmatter) {
+          console.log(`[Observer] [FINAL] No changes for ${filePath}; no write performed.`);
+        }
       }
     } catch (err) {
       // Log error if reading or writing fails
-      console.error(`[Observer] ERROR reading/extracting/writing frontmatter from ${filePath}:`, err);
+      console.error(`[Observer] ERROR processing ${filePath}:`, err);
     }
   }
 }

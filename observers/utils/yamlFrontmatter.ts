@@ -252,36 +252,49 @@ export function extractFrontmatter(content: string): Record<string, any> | null 
 }
 
 /**
- * Example of extracted frontmatter from a Markdown file.
+ * Reports basic frontmatter inconsistencies for a Markdown file.
  *
- * This object demonstrates the structure and typical values returned
- * by extractFrontmatter for a real-world Markdown file.
+ * @param frontmatter The in-memory frontmatter object to check
+ * @param template The template definition object (should have a `required` property)
+ * @param filePath The file path for reporting context
+ * @returns An object describing only missing or extra fields
  */
-export const exampleExtractedFrontmatter = {
-  site_uuid: "d729680e-d296-4c7c-be91-9e08544aea99",
-  created_by: "[[organizations/Meta]]",
-  github_repo_url: "https://github.com/ollama/ollama",
-  github_profile_url: "https://github.com/ollama",
-  date_modified: "2025-04-17",
-  date_created: "2025-03-31",
-  tags: "[Open-Source]",
-  url: "https://ollama.com/"
-};
+export function reportPotentialFrontmatterInconsistencies(
+  frontmatter: Record<string, any>,
+  template: any, // Should be MetadataTemplate, but using any for flexibility
+  filePath: string
+): {
+  missingFields: string[];
+  extraFields: string[];
+  filePath: string;
+} {
+  // === Initialize report object ===
+  const report = {
+    missingFields: [] as string[],
+    extraFields: [] as string[],
+    filePath,
+  };
 
-// Example for documentation/reference:
-// ==============================
-// [Observer] File: /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/OLlama.md
-// [Observer] Extracted frontmatter: {
-//   "site_uuid": "d729680e-d296-4c7c-be91-9e08544aea99",
-//   "created_by": "[[organizations/Meta]]",
-//   "github_repo_url": "https://github.com/ollama/ollama",
-//   "github_profile_url": "https://github.com/ollama",
-//   "date_modified": "2025-04-17",
-//   "date_created": "2025-03-31",
-//   "tags": "[Open-Source]",
-//   "url": "https://ollama.com/"
-// }
-// ==============================
+  // === Check for missing required fields ===
+  for (const key of Object.keys(template.required || {})) {
+    if (!Object.prototype.hasOwnProperty.call(frontmatter, key)) {
+      report.missingFields.push(key);
+    }
+  }
+
+  // === Check for extra/unexpected fields ===
+  const allowedFields = new Set([
+    ...Object.keys(template.required || {}),
+    ...Object.keys(template.optional || {}),
+  ]);
+  for (const key of Object.keys(frontmatter)) {
+    if (!allowedFields.has(key)) {
+      report.extraFields.push(key);
+    }
+  }
+
+  return report;
+}
 
 /**
  * Updates the frontmatter in a Markdown file's content string.
@@ -373,3 +386,35 @@ export async function writeFrontmatterToFile(
     console.error(`[yamlFrontmatter] ERROR writing frontmatter to ${filePath}:`, err);
   }
 }
+
+/**
+ * Example of extracted frontmatter from a Markdown file.
+ *
+ * This object demonstrates the structure and typical values returned
+ * by extractFrontmatter for a real-world Markdown file.
+ */
+export const exampleExtractedFrontmatter = {
+  site_uuid: "d729680e-d296-4c7c-be91-9e08544aea99",
+  created_by: "[[organizations/Meta]]",
+  github_repo_url: "https://github.com/ollama/ollama",
+  github_profile_url: "https://github.com/ollama",
+  date_modified: "2025-04-17",
+  date_created: "2025-03-31",
+  tags: "[Open-Source]",
+  url: "https://ollama.com/"
+};
+
+// Example for documentation/reference:
+// ==============================
+// [Observer] File: /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/OLlama.md
+// [Observer] Extracted frontmatter: {
+//   "site_uuid": "d729680e-d296-4c7c-be91-9e08544aea99",
+//   "created_by": "[[organizations/Meta]]",
+//   "github_repo_url": "https://github.com/ollama/ollama",
+//   "github_profile_url": "https://github.com/ollama",
+//   "date_modified": "2025-04-17",
+//   "date_created": "2025-03-31",
+//   "tags": "[Open-Source]",
+//   "url": "https://ollama.com/"
+// }
+// ==============================

@@ -499,3 +499,48 @@ export async function fetchScreenshotUrl(
   
   return null;
 }
+
+/**
+ * evaluateOpenGraph - Determines if OpenGraph metadata should be fetched for this file.
+ *
+ * @param frontmatter - The frontmatter object to check
+ * @param filePath - The file path (for logging)
+ * @returns An object with expectOpenGraph boolean
+ */
+export function evaluateOpenGraph(frontmatter: Record<string, any>, filePath: string): { expectOpenGraph: boolean } {
+  // Canonical OpenGraph fields to check
+  const ogFields = [
+    'og_image', 'og_url', 'video', 'favicon', 'site_name', 'title', 'description', 'og_images'
+  ];
+  const missing = ogFields.some(key => !frontmatter[key] || frontmatter[key] === '');
+  if (missing) {
+    console.log(`[evaluateOpenGraph] Missing OpenGraph fields in ${filePath}`);
+  } else {
+    console.log(`[evaluateOpenGraph] All OpenGraph fields present in ${filePath}`);
+  }
+  return { expectOpenGraph: missing };
+}
+
+/**
+ * processOpenGraphKeyValues - Fetches OpenGraph metadata and returns key-value pairs to merge into frontmatter.
+ *
+ * @param frontmatter - The frontmatter object to update
+ * @param filePath - The file path (for logging)
+ * @returns Promise resolving to { ogKeyValues: Record<string, any> }
+ */
+export async function processOpenGraphKeyValues(frontmatter: Record<string, any>, filePath: string): Promise<{ ogKeyValues: Record<string, any> }> {
+  // Use the main processing logic (reuse existing code)
+  const { updatedFrontmatter } = await processOpenGraphMetadata(frontmatter, filePath);
+  // Compute only the new/changed OpenGraph keys
+  const ogFields = [
+    'og_image', 'og_url', 'video', 'favicon', 'site_name', 'title', 'description', 'og_images', 'og_screenshot_url'
+  ];
+  const ogKeyValues: Record<string, any> = {};
+  for (const key of ogFields) {
+    if (updatedFrontmatter[key] && updatedFrontmatter[key] !== frontmatter[key]) {
+      ogKeyValues[key] = updatedFrontmatter[key];
+    }
+  }
+  console.log(`[processOpenGraphKeyValues] Returning updated OpenGraph keys for ${filePath}:`, ogKeyValues);
+  return { ogKeyValues };
+}
