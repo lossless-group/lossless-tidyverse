@@ -5,13 +5,15 @@
 // =============================================
 
 import chokidar from 'chokidar';
-import { extractFrontmatter } from './utils/yamlFrontmatter';
+import { extractFrontmatter, writeFrontmatterToFile } from './utils/yamlFrontmatter';
 import fs from 'fs';
 import { TemplateRegistry } from './services/templateRegistry';
 import { ReportingService } from './services/reportingService';
 // === IMPORT USER_OPTIONS CONFIG ===
 import { USER_OPTIONS } from './userOptionsConfig';
 import path from 'path';
+// === Import addSiteUUID handler ===
+import { addSiteUUID } from './handlers/addSiteUUID';
 
 /**
  * FileSystemObserver
@@ -66,17 +68,35 @@ export class FileSystemObserver {
   }
 
   /**
-   * Handler for file add/change events
-   * Reads file, extracts, and logs frontmatter
+   * Handles file change events (add/change) for Markdown files.
+   * Reads the file, extracts frontmatter, injects UUID if needed, and writes back if changed.
+   * Aggressively, continuously commented per project rules.
+   *
+   * @param filePath - Path to the changed Markdown file
    */
-  private onChange(filePath: string) {
+  private async onChange(filePath: string) {
+    // Only process Markdown files
     if (!this.isMarkdownFile(filePath)) return;
     try {
+      // Read file content
       const fileContent = fs.readFileSync(filePath, 'utf-8');
-      const frontmatter = extractFrontmatter(fileContent);
-      console.log(`[Observer] Frontmatter for ${filePath}:`, frontmatter);
+      // Extract frontmatter
+      let frontmatter = extractFrontmatter(fileContent);
+      if (frontmatter) {
+        // === Inject UUID into frontmatter object ===
+        frontmatter = addSiteUUID(frontmatter, filePath);
+        // === Write updated frontmatter back to file ===
+        // Aggressively commented: This persists any changes made by addSiteUUID
+        await writeFrontmatterToFile(filePath, frontmatter);
+        // === Log updated frontmatter ===
+        console.log(`[Observer] Frontmatter for ${filePath}:`, frontmatter);
+      } else {
+        // Warn if no valid frontmatter found
+        console.warn(`[Observer] No valid frontmatter found in ${filePath}`);
+      }
     } catch (err) {
-      console.error(`[Observer] ERROR reading/extracting frontmatter from ${filePath}:`, err);
+      // Log error if reading or writing fails
+      console.error(`[Observer] ERROR reading/extracting/writing frontmatter from ${filePath}:`, err);
     }
   }
 }
