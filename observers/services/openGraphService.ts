@@ -23,21 +23,19 @@ import { extractStringValueForFrontmatter } from '../utils/extractStringValueFor
 // Load environment variables
 dotenv.config();
 
-/*
- * Interface for OpenGraph data returned from API.
- * All properties are optional and map directly to Markdown frontmatter keys.
- * If the API response contains a canonical URL, it is mapped as 'og_url'.
+// === Single source of truth for OpenGraph fields ===
+export const OG_FIELDS = [
+  'og_image', 'og_url', 'video', 'favicon', 'site_name', 'title', 'description', 'og_images', 'og_screenshot_url'
+];
+
+/**
+ * Utility: Check if OpenGraph fields are missing from frontmatter
+ * @param frontmatter - The frontmatter object to check
+ * @returns boolean
  */
-// interface OpenGraphData {
-//   image?: string;
-//   og_url?: string;
-//   video?: string;
-//   favicon?: string;
-//   site_name?: string;
-//   title?: string;
-//   description?: string;
-//   [key: string]: string | undefined;
-// }
+export function needsOpenGraph(frontmatter: Record<string, any>): boolean {
+  return OG_FIELDS.some(key => !frontmatter[key] || frontmatter[key] === '');
+}
 
 /**
  * Process OpenGraph metadata for a file with frontmatter
@@ -84,24 +82,8 @@ export async function processOpenGraphMetadata(
   const updatedFrontmatter = { ...effectiveFrontmatter };
   let changed = false;
 
-  // --- BEGIN: OpenGraph Field Existence Checks ---
-  // Canonical OpenGraph fields for frontmatter
-  const ogFields = [
-    'og_image',
-    'og_url',
-    'video',
-    'favicon',
-    'site_name',
-    'title',
-    'description',
-    'og_images',
-    // Add more as needed based on project prompt
-  ];
-
   // Only run OpenGraph API if any of these fields are missing or empty (normalized check)
-  const needsOpenGraph = ogFields.some(
-    (key) => !extractStringValueForFrontmatter(updatedFrontmatter[key])
-  );
+  const needsOpenGraphResult = needsOpenGraph(updatedFrontmatter);
 
   // Only run screenshot API if og_screenshot_url is missing or empty (normalized check)
   const needsScreenshot = !extractStringValueForFrontmatter(updatedFrontmatter.og_screenshot_url);
@@ -109,7 +91,7 @@ export async function processOpenGraphMetadata(
   // --- LOGGING: Initial State ---
   console.log('[OpenGraph] processOpenGraphMetadata called for', effectiveFilePath);
   console.log('[OpenGraph] Initial updatedFrontmatter:', JSON.stringify(updatedFrontmatter, null, 2));
-  console.log('[OpenGraph] needsScreenshot:', needsScreenshot, 'needsOpenGraph:', needsOpenGraph);
+  console.log('[OpenGraph] needsScreenshot:', needsScreenshot, 'needsOpenGraph:', needsOpenGraphResult);
 
   // --- Fetch Screenshot if needed ---
   if (needsScreenshot) {
@@ -118,7 +100,7 @@ export async function processOpenGraphMetadata(
   }
 
   // --- Fetch OpenGraph Data if needed ---
-  if (needsOpenGraph) {
+  if (needsOpenGraphResult) {
     console.log('[OpenGraph] Calling fetchOpenGraphData with URL:', updatedFrontmatter.url || updatedFrontmatter.link);
     const ogData = await fetchOpenGraphData(updatedFrontmatter.url || updatedFrontmatter.link, effectiveFilePath!);
     console.log('[OpenGraph] fetchOpenGraphData result:', JSON.stringify(ogData, null, 2));
@@ -387,24 +369,22 @@ export async function fetchOpenGraphData(
       
       const data = await response.json();
       
+      // --- CHANGE: Ignore hybridGraph, only use openGraph fields ---
       // Validate response data
-      if (!data.hybridGraph) {
-        throw new Error('Invalid API response: missing hybridGraph');
+      if (!data.openGraph) {
+        throw new Error('Invalid API response: missing openGraph');
       }
       
-      // Extract OpenGraph data with extended image support
+      // Extract OpenGraph data using ONLY openGraph fields (ignore hybridGraph completely)
       const ogData: Record<string, any> = {
-        image: data.hybridGraph.image || '',
-        og_url: data.hybridGraph.url || '',
-        video: data.hybridGraph.video || '',
-        favicon: data.hybridGraph.favicon || '',
-        site_name: data.hybridGraph.site_name || '',
-        title: data.hybridGraph.title || '',
-        description: data.hybridGraph.description || '',
-        // Extended image extraction for new mapping logic
-        og_hybrid_image: data.hybridGraph.image || '',
-        og_image_url: data.openGraph?.image?.url || '',
-        og_image: data.openGraph?.image || '',
+        og_url: data.openGraph.url || '',
+        video: data.openGraph.video || '',
+        favicon: data.openGraph.favicon || '',
+        site_name: data.openGraph.site_name || '',
+        title: data.openGraph.title || '',
+        description: data.openGraph.description || '',
+        og_image_url: data.openGraph.image?.url || '',
+        og_image: data.openGraph.image || '',
         og_inferred_images: Array.isArray(data.htmlInferred?.images) ? data.htmlInferred.images : [],
         images: Array.isArray(data.images) ? data.images : [],
       };
@@ -508,11 +488,7 @@ export async function fetchScreenshotUrl(
  * @returns An object with expectOpenGraph boolean
  */
 export function evaluateOpenGraph(frontmatter: Record<string, any>, filePath: string): { expectOpenGraph: boolean } {
-  // Canonical OpenGraph fields to check
-  const ogFields = [
-    'og_image', 'og_url', 'video', 'favicon', 'site_name', 'title', 'description', 'og_images'
-  ];
-  const missing = ogFields.some(key => !frontmatter[key] || frontmatter[key] === '');
+  const missing = needsOpenGraph(frontmatter);
   if (missing) {
     console.log(`[evaluateOpenGraph] Missing OpenGraph fields in ${filePath}`);
   } else {
@@ -532,11 +508,8 @@ export async function processOpenGraphKeyValues(frontmatter: Record<string, any>
   // Use the main processing logic (reuse existing code)
   const { updatedFrontmatter } = await processOpenGraphMetadata(frontmatter, filePath);
   // Compute only the new/changed OpenGraph keys
-  const ogFields = [
-    'og_image', 'og_url', 'video', 'favicon', 'site_name', 'title', 'description', 'og_images', 'og_screenshot_url'
-  ];
   const ogKeyValues: Record<string, any> = {};
-  for (const key of ogFields) {
+  for (const key of OG_FIELDS) {
     if (updatedFrontmatter[key] && updatedFrontmatter[key] !== frontmatter[key]) {
       ogKeyValues[key] = updatedFrontmatter[key];
     }

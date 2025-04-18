@@ -8,6 +8,7 @@
  *   ts-node index.ts [custom-content-root]
  */
 
+
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { FileSystemObserver } from './fileSystemObserver';

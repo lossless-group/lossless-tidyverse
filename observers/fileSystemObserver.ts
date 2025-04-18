@@ -159,9 +159,6 @@ export class FileSystemObserver {
         // Merge and write
         const updatedFrontmatter = { ...originalFrontmatter, ...propertyCollector.results };
         await writeFrontmatterToFile(filePath, updatedFrontmatter);
-        // Store audit info (could be improved with a persistent store)
-        if (!globalThis.__observerAudit) globalThis.__observerAudit = {};
-        globalThis.__observerAudit[filePath] = dateNow;
         // Logging: final frontmatter written
         if (this.directoryConfig.services.logging?.extractedFrontmatter) {
           console.log(`[Observer] [FINAL] Final frontmatter for ${filePath}:`, updatedFrontmatter);
