@@ -90,10 +90,11 @@ export class FileSystemObserver {
         return;
       }
 
-      // === Log extracted frontmatter BEFORE any modification, if enabled in USER_OPTIONS ===
-      if (this.directoryConfig.services.logging?.extractedFrontmatter) {
-        console.log(`[Observer] [EXTRACTED] Frontmatter for ${filePath}:`, originalFrontmatter);
-      }
+      // Aggressive, redundant commenting: always clarify logic and all places this function is called.
+      // ---
+      // propertyCollector pattern: each subsystem returns ONLY the fields it intends to update (never the whole frontmatter).
+      // The orchestrator merges these partials into a collector, then overlays the collector onto the original frontmatter.
+      // This prevents infinite loops and guarantees no user data is dropped unless explicitly overwritten.
 
       // === Interface for property expectations ===
       interface PropertyExpectations {
@@ -103,7 +104,6 @@ export class FileSystemObserver {
       }
 
       // === Atomic Property Collector & Expectation Management ===
-      // propertyCollector: holds the working frontmatter and expectations/results
       const propertyCollector: {
         expectations: PropertyExpectations;
         results: Record<string, any>;
@@ -114,23 +114,22 @@ export class FileSystemObserver {
         },
         results: {},      // key-value pairs to merge
       };
-      let workingFrontmatter = { ...originalFrontmatter };
+      // No mutation of originalFrontmatter until final merge
 
       // --- 1. Evaluate all subsystems and collect expectations ---
       // (a) Site UUID
-      const { expectSiteUUID } = await import('./handlers/addSiteUUID').then(mod => mod.evaluateSiteUUID(workingFrontmatter, filePath));
+      const { expectSiteUUID } = await import('./handlers/addSiteUUID').then(mod => mod.evaluateSiteUUID(originalFrontmatter, filePath));
       propertyCollector.expectations.expectSiteUUID = expectSiteUUID;
       // (b) OpenGraph
-      const { expectOpenGraph } = await import('./services/openGraphService').then(mod => mod.evaluateOpenGraph(workingFrontmatter, filePath));
+      const { expectOpenGraph } = await import('./services/openGraphService').then(mod => mod.evaluateOpenGraph(originalFrontmatter, filePath));
       propertyCollector.expectations.expectOpenGraph = expectOpenGraph;
 
       // --- 2. Execute all subsystems that need to act, collect results ---
       // (a) Site UUID (sync)
       if (propertyCollector.expectations.expectSiteUUID) {
-        const { site_uuid } = await import('./handlers/addSiteUUID').then(mod => mod.addSiteUUID(workingFrontmatter, filePath));
+        const { site_uuid } = await import('./handlers/addSiteUUID').then(mod => mod.addSiteUUID(originalFrontmatter, filePath));
         if (site_uuid && site_uuid !== originalFrontmatter.site_uuid) {
           propertyCollector.results.site_uuid = site_uuid;
-          workingFrontmatter.site_uuid = site_uuid;
           if (this.directoryConfig.services.logging?.addSiteUUID) {
             console.log(`[Observer] [addSiteUUID] site_uuid added for ${filePath}:`, site_uuid);
           }
@@ -139,10 +138,9 @@ export class FileSystemObserver {
       }
       // (b) OpenGraph (async)
       if (propertyCollector.expectations.expectOpenGraph) {
-        const { ogKeyValues } = await import('./services/openGraphService').then(mod => mod.processOpenGraphKeyValues(workingFrontmatter, filePath));
+        const { ogKeyValues } = await import('./services/openGraphService').then(mod => mod.processOpenGraphKeyValues(originalFrontmatter, filePath));
         if (ogKeyValues && Object.keys(ogKeyValues).length > 0) {
           Object.assign(propertyCollector.results, ogKeyValues);
-          Object.assign(workingFrontmatter, ogKeyValues);
           if (this.directoryConfig.services.logging?.openGraph) {
             console.log(`[Observer] [fetchOpenGraph] OpenGraph properties updated for ${filePath}:`, ogKeyValues);
           }
@@ -155,8 +153,7 @@ export class FileSystemObserver {
         // Update date_modified first
         const dateNow = new Date().toISOString();
         propertyCollector.results.date_modified = dateNow;
-        workingFrontmatter.date_modified = dateNow;
-        // Merge and write
+        // Merge: overlay the collector on the original frontmatter (never write only the collector)
         const updatedFrontmatter = { ...originalFrontmatter, ...propertyCollector.results };
         await writeFrontmatterToFile(filePath, updatedFrontmatter);
         // Logging: final frontmatter written

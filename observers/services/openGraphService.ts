@@ -503,6 +503,13 @@ export function evaluateOpenGraph(frontmatter: Record<string, any>, filePath: st
  * @param frontmatter - The frontmatter object to update
  * @param filePath - The file path (for logging)
  * @returns Promise resolving to { ogKeyValues: Record<string, any> }
+ *
+ * Aggressive commenting: This function only returns the precise OpenGraph-related fields it intends to update.
+ * It never returns the full frontmatter, and never removes or drops unrelated fields.
+ * The orchestrator is responsible for merging these partials into the original frontmatter.
+ * This prevents infinite loops and guarantees no user data is dropped unless explicitly overwritten.
+ *
+ * Called by: FileSystemObserver.onChange (and ONLY there)
  */
 export async function processOpenGraphKeyValues(frontmatter: Record<string, any>, filePath: string): Promise<{ ogKeyValues: Record<string, any> }> {
   // Use the main processing logic (reuse existing code)
@@ -514,6 +521,7 @@ export async function processOpenGraphKeyValues(frontmatter: Record<string, any>
       ogKeyValues[key] = updatedFrontmatter[key];
     }
   }
+  // Aggressive logging: always show what keys are being returned
   console.log(`[processOpenGraphKeyValues] Returning updated OpenGraph keys for ${filePath}:`, ogKeyValues);
   return { ogKeyValues };
 }
