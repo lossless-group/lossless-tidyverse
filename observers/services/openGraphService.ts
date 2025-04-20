@@ -30,11 +30,55 @@ export const OG_FIELDS = [
 
 /**
  * Utility: Check if OpenGraph fields are missing from frontmatter
+ *
+ * This function checks for the *presence* of all required OpenGraph fields (see OG_FIELDS).
+ *
+ * - A field is considered present if the key exists in the frontmatter object, regardless of its value (including empty string).
+ * - Only if the key is missing (i.e., not defined at all), it is considered missing.
+ *
+ * This prevents unnecessary OpenGraph fetches and infinite loops when fields are present but empty.
+ *
  * @param frontmatter - The frontmatter object to check
- * @returns boolean
+ * @returns boolean - true if any OG_FIELDS key is missing from frontmatter
+ *
+ * ---
+ * Aggressive Commenting: Function Call Sites
+ * - Called by: processOpenGraphMetadata (direct), evaluateOpenGraph (direct)
+ * - Arguments: frontmatter (Record<string, any>)
+ * - Returns: boolean
+ * ---
  */
 export function needsOpenGraph(frontmatter: Record<string, any>): boolean {
-  return OG_FIELDS.some(key => !frontmatter[key] || frontmatter[key] === '');
+  // Returns true if any OG_FIELDS key is missing (i.e., not defined in frontmatter)
+  return OG_FIELDS.some(key => !(key in frontmatter));
+}
+
+/**
+ * === Utility: Normalize OpenGraph Data ===
+ * Ensures every OG_FIELDS property is present and normalized in returned objects.
+ * - All fields in OG_FIELDS are guaranteed to be present (empty string if missing).
+ * - All string values are trimmed and stripped of surrounding quotes.
+ * - Arrays are left as-is unless normalization is required.
+ *
+ * Called by: processOpenGraphMetadata (for normalizing API result before merging)
+ *            fetchOpenGraphData (for normalizing API result before returning)
+ *
+ * @param ogData - The raw OpenGraph data object (possibly incomplete)
+ * @returns Normalized OpenGraph data object with all OG_FIELDS
+ */
+function normalizeOpenGraphData(ogData: Record<string, any>): Record<string, any> {
+  const normalized: Record<string, any> = {};
+  for (const key of OG_FIELDS) {
+    let value = ogData[key];
+    if (typeof value === 'string') {
+      value = value.trim().replace(/^['"]|['"]$/g, '');
+    }
+    if (value === undefined || value === null) {
+      value = '';
+    }
+    normalized[key] = value;
+  }
+  return normalized;
 }
 
 /**
@@ -113,10 +157,8 @@ export async function processOpenGraphMetadata(
 
       // --- Normalize OpenGraph API results before merging ---
       // Defensive: Always normalize fields before merging into frontmatter
-      const normalizedOgData: Record<string, any> = {};
-      for (const key of Object.keys(ogData)) {
-        normalizedOgData[key] = extractStringValueForFrontmatter(ogData[key]);
-      }
+      // Use single-source normalization utility
+      const normalizedOgData = normalizeOpenGraphData(ogData);
 
       // Merge normalized OpenGraph data into updatedFrontmatter
       let ogFieldChanged = false; // Track if any real OG field changed
@@ -396,8 +438,11 @@ export async function fetchOpenGraphData(
         }
       }
       
+      // Normalize OpenGraph data before returning
+      const normalizedOgData = normalizeOpenGraphData(ogData);
+      
       console.log(`Successfully fetched OpenGraph data for ${url}`);
-      return ogData;
+      return normalizedOgData;
     } catch (error: unknown) {
       console.error(`Error fetching OpenGraph data for ${url} (attempt ${attempt}/${MAX_RETRIES}):`, error);
       
@@ -483,9 +528,19 @@ export async function fetchScreenshotUrl(
 /**
  * evaluateOpenGraph - Determines if OpenGraph metadata should be fetched for this file.
  *
- * @param frontmatter - The frontmatter object to check
- * @param filePath - The file path (for logging)
- * @returns An object with expectOpenGraph boolean
+ * This function uses needsOpenGraph to check if any required OpenGraph fields are missing (i.e., key does not exist).
+ *
+ * - If any field is missing, logs which file is missing fields and returns { expectOpenGraph: true }.
+ * - If all fields are present (even if empty), logs that all fields are present and returns { expectOpenGraph: false }.
+ *
+ * Aggressive Commenting: Function Call Sites
+ * - Called by: external (filesystem observer)
+ * - Arguments: frontmatter (object), filePath (string)
+ * - Returns: { expectOpenGraph: boolean }
+ *
+ * ---
+ * Calls: needsOpenGraph(frontmatter)
+ * ---
  */
 export function evaluateOpenGraph(frontmatter: Record<string, any>, filePath: string): { expectOpenGraph: boolean } {
   const missing = needsOpenGraph(frontmatter);
@@ -517,11 +572,61 @@ export async function processOpenGraphKeyValues(frontmatter: Record<string, any>
   // Compute only the new/changed OpenGraph keys
   const ogKeyValues: Record<string, any> = {};
   for (const key of OG_FIELDS) {
-    if (updatedFrontmatter[key] && updatedFrontmatter[key] !== frontmatter[key]) {
-      ogKeyValues[key] = updatedFrontmatter[key];
-    }
+    // Always return all OG_FIELDS, even if blank (for normalization)
+    ogKeyValues[key] = updatedFrontmatter[key] !== undefined ? updatedFrontmatter[key] : '';
   }
   // Aggressive logging: always show what keys are being returned
   console.log(`[processOpenGraphKeyValues] Returning updated OpenGraph keys for ${filePath}:`, ogKeyValues);
   return { ogKeyValues };
 }
+
+/**
+ * === Function Call Map and Usage Reference ===
+ *
+ * Functions defined in this file and where/how they are used:
+ *
+ * - needsOpenGraph:
+ *     - Called by: processOpenGraphMetadata (direct), evaluateOpenGraph (direct)
+ *     - Arguments: frontmatter (Record<string, any>)
+ *     - Returns: boolean
+ *
+ * - processOpenGraphMetadata:
+ *     - Called by: processOpenGraphKeyValues (direct)
+ *     - Arguments: frontmatter (object, optional), filePath (string, optional)
+ *     - Returns: Promise<{ updatedFrontmatter, changed }>
+ *
+ * - fetchScreenshotUrlInBackground:
+ *     - Called by: processOpenGraphMetadata (direct)
+ *     - Arguments: url (string), filePath (string)
+ *     - Returns: void
+ *
+ * - extractFrontmatterForOpenGraph:
+ *     - Called by: processOpenGraphMetadata, updateFileWithScreenshotUrl
+ *     - Arguments: content (string)
+ *     - Returns: { frontmatter, startIndex, endIndex }
+ *
+ * - updateFileWithScreenshotUrl:
+ *     - Called by: fetchScreenshotUrlInBackground (direct)
+ *     - Arguments: filePath (string), screenshotUrl (string)
+ *     - Returns: Promise<void>
+ *
+ * - fetchOpenGraphData:
+ *     - Called by: processOpenGraphMetadata (direct)
+ *     - Arguments: url (string), filePath (string)
+ *     - Returns: Promise<Record<string, any> | null>
+ *
+ * - fetchScreenshotUrl:
+ *     - Called by: fetchScreenshotUrlInBackground (direct)
+ *     - Arguments: url (string)
+ *     - Returns: Promise<string | null>
+ *
+ * - evaluateOpenGraph:
+ *     - Called by: external (filesystem observer)
+ *     - Arguments: frontmatter (object), filePath (string)
+ *     - Returns: { expectOpenGraph: boolean }
+ *
+ * - processOpenGraphKeyValues:
+ *     - Called by: FileSystemObserver.onChange (external)
+ *     - Arguments: frontmatter (object), filePath (string)
+ *     - Returns: Promise<{ ogKeyValues: Record<string, any> }>
+ */
