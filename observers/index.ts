@@ -70,6 +70,9 @@ async function main() {
   const observer = new FileSystemObserver(templateRegistry, reportingService, contentRoot);
   // === CRITICAL: Explicitly start the persistent watcher ===
   observer.startObserver();
+  // === Start RemindersWatcher to process reminders directory ===
+  observer.startRemindersWatcher();
+  console.log('RemindersWatcher started.');
   console.log('Observer started. Press Ctrl+C to exit.');
   
   // Handle shutdown gracefully

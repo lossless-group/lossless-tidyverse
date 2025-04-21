@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "tsx observers/index.ts",
     "find-missing-urls": "tsx tidy-up/tidy-one-property/import-url-where-none/findMissingUrls.mjs"
   },
   "devDependencies": {

@@ -151,11 +151,13 @@ export class FileSystemObserver {
       // --- 2. Execute all subsystems that need to act, collect results ---
       // (a) Site UUID (sync)
       if (propertyCollector.expectations.expectSiteUUID) {
-        const { site_uuid } = await import('./handlers/addSiteUUID').then(mod => mod.addSiteUUID(originalFrontmatter, filePath));
-        if (site_uuid && site_uuid !== originalFrontmatter.site_uuid) {
-          propertyCollector.results.site_uuid = site_uuid;
+        // addSiteUUID now returns { changes, writeToDisk } (never a top-level site_uuid)
+        const addSiteUUIDResult = await import('./handlers/addSiteUUID').then(mod => mod.addSiteUUID(originalFrontmatter, filePath));
+        const siteUUID = (addSiteUUIDResult.changes as Record<string, any> | undefined)?.site_uuid;
+        if (siteUUID && siteUUID !== (originalFrontmatter as Record<string, any>).site_uuid) {
+          propertyCollector.results.site_uuid = siteUUID;
           if (this.directoryConfig.services.logging?.addSiteUUID) {
-            console.log(`[Observer] [addSiteUUID] site_uuid added for ${filePath}:`, site_uuid);
+            console.log(`[Observer] [addSiteUUID] site_uuid added for ${filePath}:`, siteUUID);
           }
         }
         propertyCollector.expectations.expectSiteUUID = false;
@@ -279,13 +281,9 @@ export class FileSystemObserver {
       processRemindersFrontmatter,
       // Add more handlers here as needed
     };
-    // Example atomic execution (pseudo):
-    // for (const { op } of remindersOptions.operationSequence) {
-    //   const handler = handlerRegistry[op];
-    //   if (handler) await handler(frontmatter, filePath, { reportingService: this.reportingService });
-    // }
-    // (Actual orchestration logic would be in the main onChange handler or a dedicated orchestrator)
-    // This keeps the observer file small and all reminders logic encapsulated.
+    // --- ACTUALLY INSTANTIATE AND START THE REMINDERSWATCHER ---
+    this.remindersWatcher = new RemindersWatcher(remindersOptions);
+    this.remindersWatcher.start();
   }
 
   /**

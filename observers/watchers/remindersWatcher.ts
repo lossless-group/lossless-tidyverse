@@ -74,6 +74,7 @@ export class RemindersWatcher {
       this.reportingService.logErrorEvent(filePath, validationResults);
     }
     let accumulatedChanges: Record<string, any> = {};
+    let shouldWrite = false;
     let operationResults: OperationResult[] = [];
     for (const opStep of this.operationSequence) {
       const handler = this.getOperationHandler(opStep.op);
@@ -85,26 +86,34 @@ export class RemindersWatcher {
         await new Promise(res => setTimeout(res, opStep.delayMs));
       }
       try {
-        const result: OperationResult = await handler({ filePath, frontmatter: frontmatter as Record<string, any> });
-        operationResults.push({ op: opStep.op, success: true, changes: result.changes });
-        if (result.changes) {
-          Object.assign(accumulatedChanges, result.changes);
+        if (opStep.op === 'processRemindersFrontmatter') {
+          // processRemindersFrontmatter returns a validation report, not OperationResult
+          const validationReport = await handler({ frontmatter, filePath });
+          operationResults.push({ op: opStep.op, success: true, changes: validationReport });
+        } else {
+          const result: OperationResult = await handler({ filePath, frontmatter: { ...frontmatter, ...accumulatedChanges } });
+          operationResults.push({ op: opStep.op, success: true, changes: result.changes });
+          if (result.changes && Object.keys(result.changes).length > 0) {
+            Object.assign(accumulatedChanges, result.changes);
+          }
           if (result.writeToDisk) {
-            frontmatter = { ...frontmatter, ...result.changes };
-            writeFrontmatterToFile(filePath, frontmatter);
-            fileContent = fs.readFileSync(filePath, 'utf-8');
-            const reExtracted = extractFrontmatter(fileContent);
-            if (reExtracted) {
-              frontmatter = reExtracted as Record<string, any>;
-            } else {
-              // Defensive: log and break if frontmatter is now missing
-              this.reportingService.logErrorEvent(filePath, ['Frontmatter missing after write, aborting further ops.']);
-              break;
-            }
+            shouldWrite = true;
           }
         }
       } catch (error: any) {
         operationResults.push({ op: opStep.op, success: false, message: error.message });
+      }
+    }
+    // Only write once, after all handlers, if any changes and shouldWrite is true
+    if (shouldWrite && Object.keys(accumulatedChanges).length > 0) {
+      frontmatter = { ...frontmatter, ...accumulatedChanges };
+      writeFrontmatterToFile(filePath, frontmatter);
+      fileContent = fs.readFileSync(filePath, 'utf-8');
+      const reExtracted = extractFrontmatter(fileContent);
+      if (reExtracted) {
+        frontmatter = reExtracted as Record<string, any>;
+      } else {
+        this.reportingService.logErrorEvent(filePath, ['Frontmatter missing after write, aborting further ops.']);
       }
     }
     this.sendReport({ filePath, changes: accumulatedChanges, operationResults });
@@ -116,11 +125,12 @@ export class RemindersWatcher {
   private getOperationHandler(op: string): OperationHandler | undefined {
     // Example: map operation names to handler functions
     // Handlers must be implemented elsewhere and imported
+    const reportingService = this.reportingService;
     const handlers: Record<string, OperationHandler> = {
-      addSiteUUID: require('./handlers/addSiteUUID').addSiteUUID,
-      updateDateModified: require('./handlers/updateDateModified').updateDateModified,
-      extractFrontmatter: async ({ filePath, frontmatter }) => ({ op: 'extractFrontmatter', success: true, changes: {}, writeToDisk: false }),
-      fetchOpenGraph: require('./handlers/fetchOpenGraph').fetchOpenGraph,
+      addSiteUUID: require('../handlers/addSiteUUID').addSiteUUID,
+      processRemindersFrontmatter: async ({ frontmatter, filePath }) =>
+        require('../handlers/remindersHandler').processRemindersFrontmatter(frontmatter, filePath, { reportingService }),
+      extractFrontmatter: async () => ({ op: 'extractFrontmatter', success: true, changes: {}, writeToDisk: false }),
       // Add more handlers as needed
     };
     return handlers[op];

@@ -29,12 +29,20 @@ export function evaluateSiteUUID(frontmatter: Record<string, any>, filePath: str
 export function addSiteUUID(frontmatter: Record<string, any>, filePath: string) {
   console.log(`[addSiteUUID] file: ${filePath}`);
   console.log(`[addSiteUUID] frontmatter before:`, JSON.stringify(frontmatter, null, 2));
-  if (!frontmatter.site_uuid) {
-    frontmatter.site_uuid = generateUUID();
-    console.log(`[addSiteUUID] site_uuid added:`, frontmatter.site_uuid);
-    console.log(`[addSiteUUID] frontmatter after:`, JSON.stringify(frontmatter, null, 2));
+  let changes: Record<string, any> = {};
+  let writeToDisk = false;
+  // Only add site_uuid if missing or invalid
+  const hasValidUUID = typeof frontmatter.site_uuid === 'string' && /^[0-9a-fA-F-]{36}$/.test(frontmatter.site_uuid);
+  if (!hasValidUUID) {
+    const newUUID = generateUUID();
+    changes.site_uuid = newUUID;
+    writeToDisk = true;
+    // Logging for debugging
+    console.log(`[addSiteUUID] site_uuid added: ${newUUID}`);
+    console.log(`[addSiteUUID] frontmatter after:`, JSON.stringify({ ...frontmatter, ...changes }, null, 2));
   } else {
-    console.log(`[addSiteUUID] site_uuid already present, no change.`);
+    // Logging for debugging
+    console.log(`[addSiteUUID] site_uuid present and valid: ${frontmatter.site_uuid}`);
   }
-  return frontmatter;
+  return Object.keys(changes).length > 0 ? { changes, writeToDisk } : { changes: {}};
 }
