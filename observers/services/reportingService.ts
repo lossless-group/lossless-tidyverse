@@ -195,12 +195,42 @@ export class ReportingService {
   
   /**
    * Log a generic error event for watcher/reporting
+   * Accepts details as array, object, or string. Normalizes for robust logging.
    * @param file The file where the error occurred
-   * @param details Array of error details
+   * @param details Array of error details, object (field map), or string
    */
-  logErrorEvent(file: string, details: string[]): void {
+  logErrorEvent(file: string, details: any): void {
+    // Defensive: Normalize details for logging
+    let detailLines: string[] = [];
+
+    // CASE 1: Array (of strings or values)
+    if (Array.isArray(details)) {
+      detailLines = details.map(String);
+    }
+    // CASE 2: Object (e.g., { missingFields, invalidFields, extraFields })
+    else if (details && typeof details === 'object') {
+      for (const [key, value] of Object.entries(details)) {
+        if (Array.isArray(value)) {
+          detailLines.push(`${key}: ${value.join(', ')}`);
+        } else if (typeof value === 'object' && value !== null) {
+          detailLines.push(`${key}: ${JSON.stringify(value)}`);
+        } else {
+          detailLines.push(`${key}: ${String(value)}`);
+        }
+      }
+    }
+    // CASE 3: String
+    else if (typeof details === 'string') {
+      detailLines = [details];
+    }
+    // CASE 4: Fallback
+    else {
+      detailLines = [JSON.stringify(details)];
+    }
+
     this.hasUnreportedChanges = true;
-    console.error(`[ReportingService] Error in ${file}: ${details.join(' | ')}`);
+    // Aggressive, readable error output
+    console.error(`[ReportingService] Error in ${file}: ${detailLines.join(' | ')}`);
   }
   
   /**

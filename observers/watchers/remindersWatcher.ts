@@ -12,6 +12,8 @@ import { extractFrontmatter, writeFrontmatterToFile } from '../utils/yamlFrontma
 import { ReportingService } from '../services/reportingService';
 import remindersTemplate from '../templates/reminders';
 import { RemindersWatcherOptions, WatcherReport, HandlerArgs, OperationHandler, OperationResult } from '../types/watcherTypes';
+import { isEnabledForPath } from '../utils/commonUtils';
+import { addSiteUUID } from '../handlers/addSiteUUID';
 
 /**
  * Modular watcher for reminders content collection
@@ -53,6 +55,11 @@ export class RemindersWatcher {
    * Handler for file changes
    */
   private async onChange(filePath: string) {
+    // Aggressive ON/OFF logic: skip if addSiteUUID is disabled for this path
+    if (!isEnabledForPath(filePath, 'addSiteUUID')) {
+      console.log(`[RemindersWatcher] addSiteUUID is disabled for ${filePath} (via userOptionsConfig)`);
+      return;
+    }
     if (!filePath.endsWith('.md')) return;
     let fileContent = fs.readFileSync(filePath, 'utf-8');
     let frontmatter = extractFrontmatter(fileContent);
@@ -73,10 +80,17 @@ export class RemindersWatcher {
     if (validationResults.length > 0) {
       this.reportingService.logErrorEvent(filePath, validationResults);
     }
+    // --- AGGREGATE CHANGES FROM ALL HANDLERS BEFORE WRITING ---
     let accumulatedChanges: Record<string, any> = {};
-    let shouldWrite = false;
+    // 1. Always run addSiteUUID first if enabled
+    const addSiteUUIDResult = addSiteUUID(frontmatter, filePath);
+    if (addSiteUUIDResult.changes && Object.keys(addSiteUUIDResult.changes).length > 0) {
+      Object.assign(accumulatedChanges, addSiteUUIDResult.changes);
+    }
+    // 2. Run operationSequence handlers (excluding addSiteUUID)
     let operationResults: OperationResult[] = [];
     for (const opStep of this.operationSequence) {
+      if (opStep.op === 'addSiteUUID') continue; // already handled
       const handler = this.getOperationHandler(opStep.op);
       if (!handler) {
         operationResults.push({ op: opStep.op, success: false, message: 'Handler not found' });
@@ -86,26 +100,19 @@ export class RemindersWatcher {
         await new Promise(res => setTimeout(res, opStep.delayMs));
       }
       try {
-        if (opStep.op === 'processRemindersFrontmatter') {
-          // processRemindersFrontmatter returns a validation report, not OperationResult
-          const validationReport = await handler({ frontmatter, filePath });
-          operationResults.push({ op: opStep.op, success: true, changes: validationReport });
-        } else {
-          const result: OperationResult = await handler({ filePath, frontmatter: { ...frontmatter, ...accumulatedChanges } });
-          operationResults.push({ op: opStep.op, success: true, changes: result.changes });
-          if (result.changes && Object.keys(result.changes).length > 0) {
-            Object.assign(accumulatedChanges, result.changes);
-          }
-          if (result.writeToDisk) {
-            shouldWrite = true;
-          }
+        // FIX: Always pass the latest merged frontmatter to each handler
+        const mergedFrontmatter = { ...frontmatter, ...accumulatedChanges };
+        const result: OperationResult = await handler({ filePath, frontmatter: mergedFrontmatter });
+        operationResults.push({ op: opStep.op, success: true, changes: result.changes });
+        if (result.changes && Object.keys(result.changes).length > 0) {
+          Object.assign(accumulatedChanges, result.changes);
         }
       } catch (error: any) {
         operationResults.push({ op: opStep.op, success: false, message: error.message });
       }
     }
-    // Only write once, after all handlers, if any changes and shouldWrite is true
-    if (shouldWrite && Object.keys(accumulatedChanges).length > 0) {
+    // Only write once, after all handlers, if any changes
+    if (Object.keys(accumulatedChanges).length > 0) {
       frontmatter = { ...frontmatter, ...accumulatedChanges };
       writeFrontmatterToFile(filePath, frontmatter);
       fileContent = fs.readFileSync(filePath, 'utf-8');
@@ -127,7 +134,6 @@ export class RemindersWatcher {
     // Handlers must be implemented elsewhere and imported
     const reportingService = this.reportingService;
     const handlers: Record<string, OperationHandler> = {
-      addSiteUUID: require('../handlers/addSiteUUID').addSiteUUID,
       processRemindersFrontmatter: async ({ frontmatter, filePath }) =>
         require('../handlers/remindersHandler').processRemindersFrontmatter(frontmatter, filePath, { reportingService }),
       extractFrontmatter: async () => ({ op: 'extractFrontmatter', success: true, changes: {}, writeToDisk: false }),

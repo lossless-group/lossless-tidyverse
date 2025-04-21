@@ -6,6 +6,7 @@
  * @returns The updated frontmatter object
  */
 import { generateUUID } from '../utils/commonUtils';
+import { isEnabledForPath } from '../utils/commonUtils';
 
 /**
  * evaluateSiteUUID - Determines if a site_uuid should be added to the frontmatter.
@@ -27,22 +28,17 @@ export function evaluateSiteUUID(frontmatter: Record<string, any>, filePath: str
 }
 
 export function addSiteUUID(frontmatter: Record<string, any>, filePath: string) {
-  console.log(`[addSiteUUID] file: ${filePath}`);
-  console.log(`[addSiteUUID] frontmatter before:`, JSON.stringify(frontmatter, null, 2));
-  let changes: Record<string, any> = {};
-  let writeToDisk = false;
+  // Aggressive ON/OFF logic: skip if addSiteUUID is disabled for this path
+  if (!isEnabledForPath(filePath, 'addSiteUUID')) {
+    console.log(`[addSiteUUID] Disabled for ${filePath} (via userOptionsConfig)`);
+    return { changes: {} };
+  }
   // Only add site_uuid if missing or invalid
   const hasValidUUID = typeof frontmatter.site_uuid === 'string' && /^[0-9a-fA-F-]{36}$/.test(frontmatter.site_uuid);
   if (!hasValidUUID) {
     const newUUID = generateUUID();
-    changes.site_uuid = newUUID;
-    writeToDisk = true;
-    // Logging for debugging
-    console.log(`[addSiteUUID] site_uuid added: ${newUUID}`);
-    console.log(`[addSiteUUID] frontmatter after:`, JSON.stringify({ ...frontmatter, ...changes }, null, 2));
-  } else {
-    // Logging for debugging
-    console.log(`[addSiteUUID] site_uuid present and valid: ${frontmatter.site_uuid}`);
+    return { changes: { site_uuid: newUUID } };
   }
-  return Object.keys(changes).length > 0 ? { changes, writeToDisk } : { changes: {}};
+  // No changes needed
+  return { changes: {} };
 }

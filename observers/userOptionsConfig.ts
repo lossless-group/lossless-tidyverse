@@ -19,6 +19,7 @@ export interface DirectoryConfig {
     openGraph: boolean;
     citations: boolean;
     reorderYamlToTemplate?: boolean; // If true, output YAML will be reordered to match template property order
+    addSiteUUID?: boolean; // Controls addSiteUUID handler ON/OFF
     logging?: {
       extractedFrontmatter?: boolean;
       addSiteUUID?: boolean;
@@ -76,6 +77,20 @@ export const USER_OPTIONS: UserOptions = {
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
           addSiteUUID: false,
+          openGraph: false
+        }
+      }
+    },
+    {
+      path: 'lost-in-public/reminders',
+      template: 'reminders',
+      services: {
+        openGraph: false,
+        citations: false,
+        addSiteUUID: true,
+        reorderYamlToTemplate: false,
+        logging: {
+          addSiteUUID: true,
           openGraph: false
         }
       }

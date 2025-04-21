@@ -8,6 +8,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
+import { USER_OPTIONS } from '../userOptionsConfig';
+import type { DirectoryConfig } from '../userOptionsConfig';
 
 /**
  * Generate a UUID v4 for use in frontmatter
@@ -136,4 +138,31 @@ export function convertToTrainCase(str: string): string {
     return separator + letter.toUpperCase();
   });
   return result;
+}
+
+/**
+ * Checks if a service/operation is enabled for a given file path, based on USER_OPTIONS in userOptionsConfig.ts
+ *
+ * @param filePath - The absolute or relative file path being processed
+ * @param optionName - The name of the service/operation/feature to check (e.g., 'openGraph', 'addSiteUUID', etc.)
+ * @returns true if the option is enabled for the directory, false otherwise
+ *
+ * This function is the single source of truth for ON/OFF toggling of observer operations.
+ * It matches the filePath to the most specific DirectoryConfig (longest path match wins).
+ */
+export function isEnabledForPath(filePath: string, optionName: keyof DirectoryConfig['services']): boolean {
+  // Normalize slashes for cross-platform compatibility
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  // Find the most specific matching DirectoryConfig (longest path match wins)
+  let bestMatch: { path: string; enabled: boolean } | null = null;
+  for (const dirConfig of USER_OPTIONS.directories) {
+    const dirPath = dirConfig.path.replace(/\\/g, '/');
+    if (normalizedPath.includes(dirPath)) {
+      const enabled = Boolean(dirConfig.services && dirConfig.services[optionName] === true);
+      if (!bestMatch || dirPath.length > bestMatch.path.length) {
+        bestMatch = { path: dirPath, enabled };
+      }
+    }
+  }
+  return bestMatch ? bestMatch.enabled : false;
 }
