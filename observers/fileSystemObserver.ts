@@ -26,6 +26,14 @@ export class FileSystemObserver {
   private directoryConfig: typeof USER_OPTIONS.directories[0];
 
   /**
+   * In-memory set to track files that have already been processed in this session.
+   * This prevents infinite loops and duplicate OpenGraph processing.
+   * Only files NOT in this set are eligible for OpenGraph processing.
+   * The set is reset on process restart (not persisted).
+   */
+  private static processedFiles = new Set<string>();
+
+  /**
    * @param templateRegistry (unused, for compatibility)
    * @param reportingService (unused, for compatibility)
    * @param contentRoot Directory root (e.g., /Users/mpstaton/code/lossless-monorepo/content)
@@ -79,6 +87,14 @@ export class FileSystemObserver {
   private async onChange(filePath: string) {
     // Only process Markdown files
     if (!this.isMarkdownFile(filePath)) return;
+    // === PATCH: Prevent infinite loop by skipping files already processed in this session ===
+    if (FileSystemObserver.processedFiles.has(filePath)) {
+      if (this.directoryConfig.services.logging?.openGraph) {
+        console.log(`[Observer] [SKIP] File already processed in this session, skipping: ${filePath}`);
+      }
+      return;
+    }
+    FileSystemObserver.processedFiles.add(filePath);
     try {
       // Read file content
       const fileContent = fs.readFileSync(filePath, 'utf-8');
@@ -138,14 +154,69 @@ export class FileSystemObserver {
       }
       // (b) OpenGraph (async)
       if (propertyCollector.expectations.expectOpenGraph) {
+        // Aggressive, comprehensive, continuous commenting:
+        // Call OpenGraph subsystem ONLY to get updated key-values (never writes!)
+        // This is the ONLY place where OpenGraph results are merged and written.
         const { ogKeyValues } = await import('./services/openGraphService').then(mod => mod.processOpenGraphKeyValues(originalFrontmatter, filePath));
+        // --- Screenshot URL logic (atomic, observer-controlled) ---
+        // If og_screenshot_url is still missing, call the screenshot fetcher and merge result
+        if (!('og_screenshot_url' in originalFrontmatter)) {
+          // Aggressive comment: Only observer triggers screenshot fetch, and only if missing
+          const { fetchScreenshotUrl } = await import('./services/openGraphService');
+          // Assume frontmatter has 'og_url' or 'url' to use for screenshot
+          const targetUrl = originalFrontmatter.og_url || originalFrontmatter.url;
+          if (targetUrl) {
+            const screenshotUrl = await fetchScreenshotUrl(targetUrl);
+            if (screenshotUrl) {
+              // Use the atomic, DRY helper (returns updated frontmatter, never writes)
+              const { updateFileWithScreenshotUrl } = await import('./services/openGraphService');
+              const updatedOgFrontmatter = await updateFileWithScreenshotUrl(filePath, screenshotUrl);
+              if (updatedOgFrontmatter && updatedOgFrontmatter.og_screenshot_url) {
+                ogKeyValues.og_screenshot_url = updatedOgFrontmatter.og_screenshot_url;
+                if (this.directoryConfig.services.logging?.openGraph) {
+                  console.log(`[Observer] [fetchScreenshotUrl] Added og_screenshot_url for ${filePath}:`, updatedOgFrontmatter.og_screenshot_url);
+                }
+              }
+            }
+          }
+        }
         if (ogKeyValues && Object.keys(ogKeyValues).length > 0) {
+          // === PATCH: Always update og_last_fetch if any OG field is updated ===
+          // Only the orchestrator (observer) is allowed to set og_last_fetch, and only if any OG field or og_screenshot_url is present in ogKeyValues.
+          // og_last_fetch must never trigger another loop, and must be a non-triggering, observer-controlled property.
+          const ogKeys = [
+            'og_image', 'og_url', 'video', 'favicon', 'site_name', 'title', 'description', 'og_images', 'og_screenshot_url'
+          ];
+          const anyOgFieldChanged = ogKeys.some(key => key in ogKeyValues);
+          if (anyOgFieldChanged) {
+            ogKeyValues.og_last_fetch = new Date().toISOString();
+            if (this.directoryConfig.services.logging?.openGraph) {
+              console.log(`[Observer] [og_last_fetch] Set og_last_fetch for ${filePath}: ${ogKeyValues.og_last_fetch}`);
+            }
+          }
           Object.assign(propertyCollector.results, ogKeyValues);
           if (this.directoryConfig.services.logging?.openGraph) {
             console.log(`[Observer] [fetchOpenGraph] OpenGraph properties updated for ${filePath}:`, ogKeyValues);
           }
+        } else if (
+          // === PATCH: If OpenGraph subsystem returned no updated fields, but an error occurred, record the error in frontmatter ===
+          ogKeyValues && ogKeyValues.og_error_message
+        ) {
+          // Always write error fields, even if no OG fields were updated
+          Object.assign(propertyCollector.results, ogKeyValues);
+          if (this.directoryConfig.services.logging?.openGraph) {
+            console.log(`[Observer] [og_error] Wrote OpenGraph error fields for ${filePath}:`, ogKeyValues);
+          }
+        } else {
+          // === PATCH: If OpenGraph subsystem returned nothing (timeout, crash, or empty), record a timeout error ===
+          // This ensures that even silent failures are recorded in frontmatter and observed by the user.
+          propertyCollector.results.og_errors = true;
+          propertyCollector.results.og_last_error = new Date().toISOString();
+          propertyCollector.results.og_error_message = 'OpenGraph subsystem did not return any data (timeout or crash).';
+          if (this.directoryConfig.services.logging?.openGraph) {
+            console.log(`[Observer] [og_error] Timeout or empty result for ${filePath}, wrote og_error_message.`);
+          }
         }
-        propertyCollector.expectations.expectOpenGraph = false;
       }
 
       // --- 3. Final merge, update date_modified, write if any changes ---
