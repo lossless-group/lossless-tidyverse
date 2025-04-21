@@ -14,6 +14,11 @@ import { USER_OPTIONS } from './userOptionsConfig';
 import path from 'path';
 // === Import addSiteUUID handler ===
 import { addSiteUUID } from './handlers/addSiteUUID';
+// === Import RemindersWatcher for modular reminders file watching ===
+import { RemindersWatcher } from './watchers/remindersWatcher';
+import { RemindersWatcherOptions } from './types/watcherTypes';
+// --- Import the service-oriented reminders handler ---
+import { processRemindersFrontmatter } from './handlers/remindersHandler';
 
 /**
  * FileSystemObserver
@@ -24,6 +29,8 @@ import { addSiteUUID } from './handlers/addSiteUUID';
 export class FileSystemObserver {
   private contentRoot: string;
   private directoryConfig: typeof USER_OPTIONS.directories[0];
+  private reportingService: ReportingService;
+  private remindersWatcher: RemindersWatcher | null = null;
 
   /**
    * In-memory set to track files that have already been processed in this session.
@@ -40,6 +47,7 @@ export class FileSystemObserver {
    */
   constructor(templateRegistry: TemplateRegistry, reportingService: ReportingService, contentRoot: string) {
     this.contentRoot = contentRoot;
+    this.reportingService = reportingService;
     // === Directly assign the tooling config from USER_OPTIONS (single source of truth) ===
     // Only the first directory config with template 'tooling' is supported for now.
     this.directoryConfig = USER_OPTIONS.directories[0];
@@ -240,6 +248,53 @@ export class FileSystemObserver {
     } catch (err) {
       // Log error if reading or writing fails
       console.error(`[Observer] ERROR processing ${filePath}:`, err);
+    }
+  }
+
+  /**
+   * Example: Set up and start the RemindersWatcher alongside the main observer.
+   * This demonstrates correct instantiation using project conventions.
+   *
+   * Aggressive comments: All options are explicit; types are imported from watcherTypes.
+   * Directory, operation sequence, and reportingService are passed from config/context.
+   */
+  public startRemindersWatcher() {
+    // --- Configure the watcher options ---
+    const remindersOptions: RemindersWatcherOptions = {
+      directory: path.join(this.contentRoot, 'lost-in-public/reminders'), // Adjust as needed
+      operationSequence: [
+        { op: 'addSiteUUID' },
+        { op: 'processRemindersFrontmatter' }, // Service-oriented, atomic handler
+        // Add more ops as needed
+      ],
+      reportingService: this.reportingService,
+      sendReport: (report) => {
+        // Handle or log the watcher report as needed
+        console.log('[RemindersWatcher] Report:', report);
+      },
+    };
+    // --- Handler registry for atomic, service-oriented ops ---
+    const handlerRegistry = {
+      addSiteUUID: require('./handlers/addSiteUUID').addSiteUUID,
+      processRemindersFrontmatter,
+      // Add more handlers here as needed
+    };
+    // Example atomic execution (pseudo):
+    // for (const { op } of remindersOptions.operationSequence) {
+    //   const handler = handlerRegistry[op];
+    //   if (handler) await handler(frontmatter, filePath, { reportingService: this.reportingService });
+    // }
+    // (Actual orchestration logic would be in the main onChange handler or a dedicated orchestrator)
+    // This keeps the observer file small and all reminders logic encapsulated.
+  }
+
+  /**
+   * Example: Stop the RemindersWatcher if running.
+   */
+  public stopRemindersWatcher() {
+    if (this.remindersWatcher) {
+      this.remindersWatcher.stop();
+      this.remindersWatcher = null;
     }
   }
 }

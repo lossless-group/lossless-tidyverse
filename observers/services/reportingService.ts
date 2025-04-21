@@ -194,6 +194,16 @@ export class ReportingService {
   }
   
   /**
+   * Log a generic error event for watcher/reporting
+   * @param file The file where the error occurred
+   * @param details Array of error details
+   */
+  logErrorEvent(file: string, details: string[]): void {
+    this.hasUnreportedChanges = true;
+    console.error(`[ReportingService] Error in ${file}: ${details.join(' | ')}`);
+  }
+  
+  /**
    * Check if any files have been processed
    * @returns True if any files have been processed, false otherwise
    */
