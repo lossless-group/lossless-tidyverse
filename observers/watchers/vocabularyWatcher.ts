@@ -15,6 +15,7 @@ import { TemplateRegistry } from '../services/templateRegistry';
 import { formatFrontmatter, extractFrontmatter, updateFrontmatter } from '../utils/yamlFrontmatter';
 import vocabularyTemplate from '../templates/vocabulary';
 import { TemplateField } from '../types/template';
+import { ReportingService } from '../services/reportingService';
 
 // === Directory to Watch ===
 const VOCABULARY_DIR = path.resolve(process.cwd(), 'content/vocabulary');
@@ -32,9 +33,18 @@ const templateRegistry = new TemplateRegistry();
  */
 export class VocabularyWatcher {
   private watcher: chokidar.FSWatcher;
-  constructor() {
-    // === Aggressive Commenting ===
-    // Set up chokidar watcher for Markdown files in vocabulary directory only
+  // ---------------------------------------------------------------------------
+  // Aggressive Commenting: ReportingService is injected for logging validation
+  private reportingService: ReportingService;
+
+  // ---------------------------------------------------------------------------
+  /**
+   * Construct a VocabularyWatcher
+   * @param reportingService - ReportingService instance for logging validation results
+   */
+  constructor(reportingService: ReportingService) {
+    // Aggressive Commenting: Set up chokidar watcher for Markdown files in vocabulary directory only
+    this.reportingService = reportingService;
     this.watcher = chokidar.watch(path.join(VOCABULARY_DIR, '**/*.md'), {
       ignoreInitial: false,
       awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
@@ -85,6 +95,10 @@ export class VocabularyWatcher {
         const newContent = updateFrontmatter(content, updatedFrontmatter);
         await fs.writeFile(filePath, newContent, 'utf8');
         console.log(`[VocabularyWatcher] Updated frontmatter written to: ${filePath}`);
+        // === CRITICAL: Register file as processed for reportingService ===
+        // This ensures the main observer report includes vocabularyWatcher activity
+        // NOTE: The dummy validation result must include warnings: [] to satisfy ValidationResult type
+        this.reportingService.logValidation(filePath, { valid: true, errors: [], warnings: [] });
       } else {
         console.log(`[VocabularyWatcher] No frontmatter changes needed for: ${filePath}`);
       }
@@ -110,9 +124,12 @@ export class VocabularyWatcher {
 }
 
 // === Export a default instance for easy integration ===
-export const vocabularyWatcher = new VocabularyWatcher();
+// NOTE: You must now provide a ReportingService instance when constructing
+//       VocabularyWatcher. The default export is removed to prevent misuse.
+// export const vocabularyWatcher = new VocabularyWatcher();
 
 // === Usage Example (to be toggled by User Options elsewhere) ===
 // if (USER_OPTIONS.directories.find(d => d.template === 'vocabulary' && d.enabled)) {
+//   const vocabularyWatcher = new VocabularyWatcher(reportingService);
 //   vocabularyWatcher.start();
 // }

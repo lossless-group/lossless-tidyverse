@@ -77,10 +77,10 @@ async function main() {
   console.log('Observer started. Press Ctrl+C to exit.');
   
   // Handle shutdown gracefully
-  process.on('SIGINT', async () => {
-    console.log('Shutting down observer...');
-    process.exit(0);
-  });
+  // Remove the old SIGINT handler and delegate to observer's shutdown logic
+  // The FileSystemObserver already registers its own shutdown handler that writes the final report
+  // No need to duplicate or exit prematurely here.
+  // (If you want to ensure exit after observer shutdown, you can listen for a custom event or rely on the observer's logic.)
 }
 
 // Run the main function
