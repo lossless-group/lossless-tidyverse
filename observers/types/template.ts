@@ -7,11 +7,22 @@
 
 /**
  * Represents a field in a metadata template with type, validation, and default value
+ *
+ * CRITICAL: Inspector-Only Pattern
+ *   - The `inspection` property is for reporting/inspection ONLY (never enforcement, never auto-fix).
+ *   - See .windsurfrules and project docs for the inspector-only policy.
+ *   - If both `validation` and `inspection` are present, only one should be used by consuming code.
  */
 export interface TemplateField {
   type: 'string' | 'date' | 'array' | 'boolean' | 'number';
   description: string;
   validation?: (value: any) => boolean;
+  /**
+   * Inspector function for reporting/inspection (never enforcement).
+   * Returns an object with status and message for reporting.
+   * Example: { status: 'ok' | 'empty' | 'malformed' | 'missing', message: string }
+   */
+  inspection?: (value: any) => { status: 'ok' | 'empty' | 'malformed' | 'missing', message: string };
   defaultValue?: any;
   defaultValueFn?: (filePath: string, frontmatter?: Record<string, any>) => any;
 }

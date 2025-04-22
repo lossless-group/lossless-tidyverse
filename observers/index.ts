@@ -36,7 +36,8 @@ async function main() {
   const templateRegistry = new TemplateRegistry();
   
   // Initialize reporting service with proper reports directory
-  const reportsDir = path.resolve(process.cwd(), '../../content/reports');
+  // Use __dirname to ensure correct path regardless of CWD (see project rules)
+  const reportsDir = path.resolve(__dirname, '../../content/reports');
   const reportingService = new ReportingService(reportsDir);
   console.log(`Reports directory: ${reportsDir}`);
   
@@ -49,8 +50,8 @@ async function main() {
     contentRoot = path.resolve(process.cwd(), providedPath);
     console.log(`Using custom content root: ${contentRoot} (from command-line argument)`);
   } else {
-    // Use the default content root path
-    contentRoot = path.resolve(process.cwd(), '../../content');
+    // Use the default content root path (always correct relative to tidyverse/observers)
+    contentRoot = path.resolve(__dirname, '../../content');
     console.log(`Using default content root: ${contentRoot}`);
   }
   

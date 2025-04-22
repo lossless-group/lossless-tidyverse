@@ -31,6 +31,7 @@ export class FileSystemObserver {
   private directoryConfig: typeof USER_OPTIONS.directories[0];
   private reportingService: ReportingService;
   private remindersWatcher: RemindersWatcher | null = null;
+  private shutdownInitiated: boolean = false;
 
   /**
    * In-memory set to track files that have already been processed in this session.
@@ -51,6 +52,11 @@ export class FileSystemObserver {
     // === Directly assign the tooling config from USER_OPTIONS (single source of truth) ===
     // Only the first directory config with template 'tooling' is supported for now.
     this.directoryConfig = USER_OPTIONS.directories[0];
+    // Register shutdown hooks bound to this instance
+    const boundShutdown = this.handleShutdown.bind(this);
+    process.on('SIGINT', boundShutdown);
+    process.on('SIGTERM', boundShutdown);
+    process.on('exit', boundShutdown);
   }
 
   /**
@@ -293,6 +299,31 @@ export class FileSystemObserver {
     if (this.remindersWatcher) {
       this.remindersWatcher.stop();
       this.remindersWatcher = null;
+    }
+  }
+
+  /**
+   * Idempotent shutdown handler: writes final report on shutdown signal.
+   */
+  private async handleShutdown() {
+    if (this.shutdownInitiated) return;
+    this.shutdownInitiated = true;
+    try {
+      console.log('[Observer] Shutdown signal received. Writing final report...');
+      if (this.reportingService && typeof this.reportingService.writeReport === 'function') {
+        const reportPath = await this.reportingService.writeReport();
+        if (reportPath) {
+          console.log(`[Observer] Final report written to: ${reportPath}`);
+        } else {
+          console.warn('[Observer] No report was generated (no files processed).');
+        }
+      } else {
+        console.error('[Observer] ReportingService is not available or misconfigured. Final report NOT written.');
+      }
+    } catch (err) {
+      console.error('[Observer] Error during shutdown report generation:', err);
+    } finally {
+      setTimeout(() => process.exit(0), 250);
     }
   }
 }

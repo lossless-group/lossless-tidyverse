@@ -25,6 +25,11 @@ export class RemindersWatcher {
   private sendReport: (report: WatcherReport) => void;
   private watcher: chokidar.FSWatcher | null = null;
 
+  // ---------------------------------------------------------------------------
+  // In-memory set to track files already inspected this session
+  // This prevents repeated reporting/inspection of the same file (infinite loop fix)
+  private static processedFiles: Set<string> = new Set();
+
   constructor(options: RemindersWatcherOptions) {
     this.directory = options.directory;
     this.operationSequence = options.operationSequence;
@@ -55,6 +60,14 @@ export class RemindersWatcher {
    * Handler for file changes
    */
   private async onChange(filePath: string) {
+    // Infinite loop prevention: skip if already processed this session
+    if (RemindersWatcher.processedFiles.has(filePath)) {
+      // Aggressive comment: This file has already been inspected/reported this session
+      // Only re-inspect if the file changes (chokidar will trigger on actual file change)
+      return;
+    }
+    RemindersWatcher.processedFiles.add(filePath);
+
     // Aggressive ON/OFF logic: skip if addSiteUUID is disabled for this path
     if (!isEnabledForPath(filePath, 'addSiteUUID')) {
       console.log(`[RemindersWatcher] addSiteUUID is disabled for ${filePath} (via userOptionsConfig)`);

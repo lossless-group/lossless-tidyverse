@@ -1,204 +1,206 @@
-// -----------------------------------------------------------------------------
-// Canonical Reminders Template for Markdown Frontmatter
+// =============================================================================
+// Inspector-Only Reminders Template for Markdown Frontmatter
 //
-// This template defines the expected frontmatter structure for files in the
-// reminders collection. It mirrors the rigor, validation, and DRY conventions
-// of the prompts template, with field names and defaults adapted for reminders.
+// This template defines the expected frontmatter structure for reminders files.
+// It enforces the INSPECTOR-ONLY pattern as per .windsurfrules:
+//   - If a required property does not exist, assert and write with '' (empty string).
+//   - If property exists but is '', report as 'empty' but do not treat as error or fix.
+//   - If property is malformed, report as 'malformed' but do not enforce or fix.
+//   - All inspection results are for reporting only—never for enforcement or hard validation.
+//   - All logic here must be idempotent and non-destructive.
 //
-// Each field is commented with its purpose, validation, and defaulting logic.
-// Validation functions are for reporting only—never auto-fix or mutate content.
-// -----------------------------------------------------------------------------
+// See .windsurfrules and issue-resolution docs for project-wide inspector-only policy.
+// =============================================================================
 
 import { MetadataTemplate } from '../types/template';
 import { generateUUID, getFileCreationDate, getCurrentDate } from '../utils/commonUtils';
 import * as path from 'path';
 
+// Inspector function type
 /**
- * Template for reminders directory files
- * Based on canonical field order and validation patterns from prompts.ts
+ * Inspector functions return an object with keys:
+ *   - status: 'ok' | 'empty' | 'malformed' | 'missing'
+ *   - message: string (for reporting)
+ */
+type InspectorResult = { status: 'ok' | 'empty' | 'malformed' | 'missing', message: string };
+
+type InspectorFn = (value: any) => InspectorResult;
+
+// Helper: Inspector for required string fields
+function requiredStringInspector(fieldName: string): InspectorFn {
+  return (value: any) => {
+    if (typeof value === 'undefined') return { status: 'missing', message: `${fieldName} is missing` };
+    if (typeof value !== 'string') return { status: 'malformed', message: `${fieldName} is not a string` };
+    if (value.trim() === '') return { status: 'empty', message: `${fieldName} is present but empty` };
+    return { status: 'ok', message: `${fieldName} is present` };
+  };
+}
+
+// Helper: Inspector for required array fields
+function requiredArrayInspector(fieldName: string): InspectorFn {
+  return (value: any) => {
+    if (typeof value === 'undefined') return { status: 'missing', message: `${fieldName} is missing` };
+    if (!Array.isArray(value)) return { status: 'malformed', message: `${fieldName} is not an array` };
+    if (value.length === 0) return { status: 'empty', message: `${fieldName} array is empty` };
+    return { status: 'ok', message: `${fieldName} is present` };
+  };
+}
+
+// Helper: Inspector for date fields (string or null allowed)
+function dateInspector(fieldName: string): InspectorFn {
+  return (value: any) => {
+    if (typeof value === 'undefined') return { status: 'missing', message: `${fieldName} is missing` };
+    if (value === null) return { status: 'ok', message: `${fieldName} is null (allowed)` };
+    if (typeof value !== 'string') return { status: 'malformed', message: `${fieldName} is not a string` };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { status: 'malformed', message: `${fieldName} is not YYYY-MM-DD` };
+    return { status: 'ok', message: `${fieldName} is present` };
+  };
+}
+
+/**
+ * Canonical reminders template, inspector-only (never enforcing)
  */
 const remindersTemplate: MetadataTemplate = {
   id: 'reminders',
   name: 'Reminders Document',
-  description: 'Template for reminders documentation',
+  description: 'Template for reminders documentation (INSPECTOR-ONLY)',
 
-  // Define which files this template applies to
   appliesTo: {
     directories: ['content/lost-in-public/reminders/**/*'],
   },
 
-  // Required fields that must be present in frontmatter
   required: {
     title: {
       type: 'string',
       description: 'Title of the reminder',
-      validation: (value) => typeof value === 'string' && value.length > 0,
-      defaultValueFn: (filePath) => {
-        try {
-          const filename = path.basename(filePath, '.md');
-          return filename.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-        } catch (error) {
-          console.error(`Error generating title for ${filePath}:`, error);
-          return 'Untitled Reminder';
-        }
-      }
+      inspection: requiredStringInspector('title'),
+      defaultValueFn: () => ''
     },
     lede: {
       type: 'string',
       description: 'Brief description of the reminder',
-      validation: (value) => typeof value === 'string' && value.length > 0,
-      defaultValueFn: () => 'Brief description of the reminder functionality and purpose'
+      inspection: requiredStringInspector('lede'),
+      defaultValueFn: () => ''
     },
     date_authored_initial_draft: {
       type: 'date',
       description: 'Date of initial draft authoring',
-      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)),
-      defaultValueFn: () => {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      }
+      inspection: dateInspector('date_authored_initial_draft'),
+      defaultValueFn: () => ''
     },
     date_authored_current_draft: {
       type: 'date',
       description: 'Date of current draft authoring',
-      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)),
-      defaultValueFn: () => {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      }
+      inspection: dateInspector('date_authored_current_draft'),
+      defaultValueFn: () => ''
     },
     at_semantic_version: {
       type: 'string',
       description: 'Semantic version of the reminder',
-      validation: (value) => typeof value === 'string' && /^\d+\.\d+\.\d+\.\d+$/.test(value),
-      defaultValueFn: () => '0.0.0.1'
+      inspection: requiredStringInspector('at_semantic_version'),
+      defaultValueFn: () => ''
     },
     authors: {
       type: 'array',
       description: 'Author(s) of the reminder',
-      validation: (value) => {
-        if (Array.isArray(value)) {
-          return value.length > 0;
-        } else if (typeof value === 'string') {
-          return value.trim().length > 0;
-        }
-        return false;
-      },
-      defaultValueFn: () => ['Michael Staton']
+      inspection: requiredArrayInspector('authors'),
+      defaultValueFn: () => []
     },
     status: {
       type: 'string',
       description: 'Current status of the reminder',
-      validation: (value) => value === null || typeof value === 'string',
-      defaultValueFn: () => 'To-Do'
+      inspection: requiredStringInspector('status'),
+      defaultValueFn: () => ''
     },
     augmented_with: {
       type: 'string',
       description: 'AI model used for augmentation',
-      validation: (value) => typeof value === 'string' && value.length > 0,
-      defaultValueFn: () => 'Windsurf Cascade on Claude 3.5 Sonnet'
+      inspection: requiredStringInspector('augmented_with'),
+      defaultValueFn: () => ''
     },
     category: {
       type: 'string',
       description: 'Category of the reminder',
-      validation: (value) => typeof value === 'string' && value.length > 0,
-      defaultValueFn: () => 'Reminders'
+      inspection: requiredStringInspector('category'),
+      defaultValueFn: () => ''
     },
     tags: {
       type: 'array',
       description: 'Categorization tags',
-      validation: (value) => {
-        if (Array.isArray(value)) {
-          return value.length > 0;
-        } else if (typeof value === 'string') {
-          return value.trim().length > 0;
-        }
-        return false;
-      },
-      defaultValueFn: (filePath) => {
-        try {
-          const normalizedPath = filePath.replace(/\\/g, '/');
-          if (!normalizedPath.includes('content/lost-in-public/reminders/')) {
-            return ['Uncategorized'];
-          }
-          const pathAfterReminders = normalizedPath.split('content/lost-in-public/reminders/')[1];
-          if (!pathAfterReminders) {
-            return ['Uncategorized'];
-          }
-          const dirParts = pathAfterReminders.split('/');
-          dirParts.pop();
-          if (dirParts.length === 0) {
-            return ['Uncategorized'];
-          }
-          return dirParts.map(dir => {
-            const words = dir.split(/[-_\s]+/);
-            return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join('-');
-          });
-        } catch (error) {
-          return ['Uncategorized'];
-        }
-      }
+      inspection: requiredArrayInspector('tags'),
+      defaultValueFn: () => []
     },
     date_created: {
       type: 'date',
       description: 'Creation date',
-      defaultValueFn: (filePath) => getFileCreationDate(filePath)
+      inspection: dateInspector('date_created'),
+      defaultValueFn: () => ''
     },
     date_modified: {
       type: 'date',
       description: 'Last modification date',
-      defaultValueFn: () => getCurrentDate()
+      inspection: dateInspector('date_modified'),
+      defaultValueFn: () => ''
     },
     site_uuid: {
       type: 'string',
       description: 'Unique identifier for the resource on the website',
-      validation: (value) => typeof value === 'string' && value.length > 0,
-      defaultValueFn: () => generateUUID()
+      inspection: requiredStringInspector('site_uuid'),
+      defaultValueFn: () => ''
     },
     // Reminders-specific required fields
     portrait_image: {
       type: 'string',
       description: 'URL for a tall, portrait-oriented image',
-      validation: (value) => typeof value === 'string' && value.length > 0,
+      inspection: requiredStringInspector('portrait_image'),
       defaultValueFn: () => ''
     },
     image_prompt: {
       type: 'string',
       description: 'Prompt describing the desired image for generative tools',
-      validation: (value) => typeof value === 'string',
+      inspection: requiredStringInspector('image_prompt'),
       defaultValueFn: () => ''
     }
   },
 
-  // Optional fields that may be present in frontmatter
   optional: {
     date_authored_final_draft: {
       type: 'date',
       description: 'Date of final draft authoring',
-      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
+      inspection: dateInspector('date_authored_final_draft')
     },
     date_first_published: {
       type: 'date',
       description: 'Date of first publication',
-      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
+      inspection: dateInspector('date_first_published')
     },
     date_last_updated: {
       type: 'date',
       description: 'Date of last update',
-      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
+      inspection: dateInspector('date_last_updated')
     },
     date_first_run: {
       type: 'date',
       description: 'Date the reminder was first run',
-      validation: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
+      inspection: dateInspector('date_first_run')
     }
   }
 };
+
+// Inspector utility: run all inspections and return a report
+export function inspectRemindersFrontmatter(frontmatter: Record<string, any>): InspectorResult[] {
+  const results: InspectorResult[] = [];
+  for (const [field, def] of Object.entries(remindersTemplate.required)) {
+    if (typeof def.inspection === 'function') {
+      results.push(def.inspection(frontmatter[field]));
+    }
+  }
+  for (const [field, def] of Object.entries(remindersTemplate.optional)) {
+    if (typeof def.inspection === 'function' && field in frontmatter) {
+      results.push(def.inspection(frontmatter[field]));
+    }
+  }
+  return results;
+}
 
 export default remindersTemplate;
