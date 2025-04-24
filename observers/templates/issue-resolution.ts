@@ -15,30 +15,36 @@
 import { MetadataTemplate } from '../types/template';
 import { generateUUID, getFileCreationDate, getCurrentDate } from '../utils/commonUtils';
 
+// Types for inspector statuses
+// Only these literal values are allowed for status
+// This matches the TemplateField type in the project
+//
+type InspectorStatus = "missing" | "malformed" | "empty" | "ok";
+
 // Inspector helpers (copied from reminders template)
 function requiredStringInspector(fieldName: string) {
-  return (value: any) => {
-    if (typeof value === 'undefined') return { status: 'missing', message: `${fieldName} is missing` };
-    if (typeof value !== 'string') return { status: 'malformed', message: `${fieldName} is not a string` };
-    if (value.trim() === '') return { status: 'empty', message: `${fieldName} is present but empty` };
-    return { status: 'ok', message: `${fieldName} is present` };
+  return (value: any): { status: InspectorStatus; message: string } => {
+    if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
+    if (typeof value !== 'string') return { status: "malformed", message: `${fieldName} is not a string` };
+    if (value.trim() === '') return { status: "empty", message: `${fieldName} is present but empty` };
+    return { status: "ok", message: `${fieldName} is present` };
   };
 }
 function requiredArrayInspector(fieldName: string) {
-  return (value: any) => {
-    if (typeof value === 'undefined') return { status: 'missing', message: `${fieldName} is missing` };
-    if (!Array.isArray(value)) return { status: 'malformed', message: `${fieldName} is not an array` };
-    if (value.length === 0) return { status: 'empty', message: `${fieldName} array is empty` };
-    return { status: 'ok', message: `${fieldName} is present` };
+  return (value: any): { status: InspectorStatus; message: string } => {
+    if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
+    if (!Array.isArray(value)) return { status: "malformed", message: `${fieldName} is not an array` };
+    if (value.length === 0) return { status: "empty", message: `${fieldName} array is empty` };
+    return { status: "ok", message: `${fieldName} is present` };
   };
 }
 function dateInspector(fieldName: string) {
-  return (value: any) => {
-    if (typeof value === 'undefined') return { status: 'missing', message: `${fieldName} is missing` };
-    if (value === null) return { status: 'ok', message: `${fieldName} is null (allowed)` };
-    if (typeof value !== 'string') return { status: 'malformed', message: `${fieldName} is not a string` };
-    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value)) return { status: 'malformed', message: `${fieldName} is not YYYY-MM-DD` };
-    return { status: 'ok', message: `${fieldName} is present` };
+  return (value: any): { status: InspectorStatus; message: string } => {
+    if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
+    if (value === null) return { status: "ok", message: `${fieldName} is null (allowed)` };
+    if (typeof value !== 'string') return { status: "malformed", message: `${fieldName} is not a string` };
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value)) return { status: "malformed", message: `${fieldName} is not YYYY-MM-DD` };
+    return { status: "ok", message: `${fieldName} is present` };
   };
 }
 

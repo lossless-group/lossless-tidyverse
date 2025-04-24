@@ -32,10 +32,27 @@ export interface DirectoryConfig {
 export interface UserOptions {
   directories: DirectoryConfig[];
   // Add more global options as needed
+  AUTO_ADD_MISSING_FRONTMATTER_FIELDS?: boolean; // If true, observer scripts may auto-add missing/empty frontmatter fields with defaults.
 }
 
 export const USER_OPTIONS: UserOptions = {
   directories: [
+    // CRITICAL: Place the most specific config blocks first to avoid shadowing by general blocks.
+    // The 'content/essays' block MUST come before any block that matches 'content' or a parent directory.
+    {
+      path: 'essays',
+      template: 'essays',
+      services: {
+        addSiteUUID: true,
+        openGraph: false,
+        citations: false,
+        reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
+        logging: {
+          addSiteUUID: true,
+          openGraph: false
+        }
+      }
+    },
     {
       path: 'tooling/Enterprise Jobs-to-be-Done',
       template: 'tooling', // matches a template id
@@ -122,7 +139,10 @@ export const USER_OPTIONS: UserOptions = {
         }
       }
     }
-    // Add more directory configs as needed
-  ]
-  // Add more global options as needed
+  ],
+  // ===================== GLOBAL OBSERVER SCRIPT OPTIONS =====================
+  // Option: If true, observer scripts may auto-add missing/empty frontmatter fields with defaults.
+  // If false (default), scripts only report missing/empty fields and DO NOT modify files.
+  AUTO_ADD_MISSING_FRONTMATTER_FIELDS: false,
+  // ========================================================================
 };

@@ -20,10 +20,10 @@ import path from 'path';
 import { addSiteUUID } from '../handlers/addSiteUUID';
 import { addDateCreated } from '../handlers/addDateCreated';
 import { extractFrontmatter, writeFrontmatterToFile, formatFrontmatter } from '../utils/yamlFrontmatter';
-import { generateUUID, getFileCreationDate } from '../utils/commonUtils';
+// Removed unused imports: generateUUID, getFileCreationDate
 
 // === CONFIGURATION: Root content directory (adjust as needed) ===
-const CONTENT_ROOT = path.resolve(__dirname, '../../../content/lost-in-public/issue-resolution');
+const CONTENT_ROOT = path.resolve(__dirname, '../../../content/essays');
 console.log(`[INFO] Processing only: ${CONTENT_ROOT}`);
 
 /**
@@ -61,12 +61,12 @@ async function main() {
       if (!frontmatter) {
         // === No frontmatter found: create new block with site_uuid and date_created ===
         // Aggressive, comprehensive, continuous commenting:
-        // - Generate new UUID (v4) for site_uuid using generateUUID from commonUtils
-        // - Get file birthtime for date_created using getFileCreationDate from commonUtils
+        // - Generate new UUID (v4) for site_uuid using addSiteUUID
+        // - Get file birthtime for date_created using addDateCreated
         // - Compose new frontmatter object, do NOT assert title (per user instruction)
         // - Insert as YAML frontmatter at the very top, followed by the original content
-        const newUUID = generateUUID();
-        const dateCreated = getFileCreationDate(filePath);
+        const newUUID = addSiteUUID({}, filePath).changes.site_uuid;
+        const dateCreated = addDateCreated({}, filePath).changes.date_created;
         const newFrontmatter = {
           site_uuid: newUUID,
           date_created: dateCreated || ''
