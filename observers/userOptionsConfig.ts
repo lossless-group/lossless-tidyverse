@@ -96,6 +96,20 @@ export const USER_OPTIONS: UserOptions = {
       }
     },
     {
+      path: 'lost-in-public/issue-resolution',
+      template: 'issue-resolution',
+      services: {
+        openGraph: false,
+        citations: false,
+        addSiteUUID: true, // <--- ENABLED for this directory
+        reorderYamlToTemplate: false,
+        logging: {
+          addSiteUUID: true,
+          openGraph: false
+        }
+      }
+    },
+    {
       path: 'specs',
       template: 'specifications',
       services: {

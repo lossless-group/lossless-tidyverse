@@ -186,6 +186,11 @@ export function extractFrontmatter(content: string): Record<string, any> | null 
     let currentArrayProperty: string | null = null;
     let arrayValues: any[] = [];
     
+    // === BEGIN PATCH: Parse flow array syntax for known array fields (tags, authors, aliases) ===
+    // This patch ensures that lines like tags: [A, B, C] are parsed as arrays, not as strings.
+    // Only applies to known array fields to avoid breaking other logic.
+    const ARRAY_FIELDS = ['tags', 'authors', 'aliases'];
+    
     for (let line of lines) {
       line = line.trim();
       if (!line) continue;
@@ -217,23 +222,22 @@ export function extractFrontmatter(content: string): Record<string, any> | null 
           continue;
         }
         
-        // Handle different value types
-        if (value === 'null' || value === '') {
-          frontmatter[key] = null;
-        } else if (value === 'true') {
-          frontmatter[key] = true;
-        } else if (value === 'false') {
-          frontmatter[key] = false;
-        } else if (!isNaN(Number(value)) && !value.startsWith('0')) {
-          // Only convert to number if it doesn't start with 0 (to preserve things like versions)
-          frontmatter[key] = value.includes('.') ? parseFloat(value) : parseInt(value);
+        // --- PATCHED LOGIC: Detect and parse flow array syntax for known array fields ---
+        if (
+          ARRAY_FIELDS.includes(key) &&
+          typeof value === 'string' &&
+          value.trim().startsWith('[') &&
+          value.trim().endsWith(']')
+        ) {
+          // Remove brackets and split by comma
+          const inner = value.trim().slice(1, -1);
+          // Split, trim, and filter out empty strings
+          frontmatter[key] = inner
+            .split(',')
+            .map((x) => x.trim())
+            .filter((x) => x.length > 0);
         } else {
-          // Remove quotes if present
-          if ((value.startsWith('"') && value.endsWith('"')) || 
-              (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.substring(1, value.length - 1);
-          }
-          
+          // Default behavior: assign as string
           frontmatter[key] = value;
         }
       }

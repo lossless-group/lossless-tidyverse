@@ -28,15 +28,8 @@ const knownErrorCases = {
     noSiteUUIDinFrontmatter: {
         exampleErrors: [
             "",
-            ```---
-            url: https://www.archonlabs.com/
-            site_name: Archon Labs'
-            ---```,
-            ```---
-            url: https://www.archonlabs.com/
-            site_name: Archon Labs'
-            site_uuid:
-            ---```,
+            `---\nurl: https://www.archonlabs.com/\nsite_name: Archon Labs'\n---`,
+            `---\nurl: https://www.archonlabs.com/\nsite_name: Archon Labs'\nsite_uuid:\n---`,
         ],
         properSyntax: `---
             url: https://www.archonlabs.com/
@@ -61,28 +54,10 @@ const knownErrorCases = {
     tagsMayHaveInconsistentSyntax: {
         exampleErrors: [
             "",
-            ```---
-            url: https://www.archonlabs.com/
-            site_name: Archon Labs'
-            tags: ["Technology-Consultants", "Organizations"]
-            ---```,
-            ```---
-            url: https://www.archonlabs.com/
-            site_name: Archon Labs'
-            tags: Technology-Consultants, Organizations
-            ---```,
-            ```---
-            url: https://www.archonlabs.com/
-            site_name: Archon Labs'
-            tags: 
-            - Technology Consultants
-            - Organizations
-            ---```,
-            ```---
-            url: https://www.archonlabs.com/
-            site_name: Archon Labs'
-            tags: 'Technology-Consultants', 'Organizations'
-            ---```,
+            `---\nurl: https://www.archonlabs.com/\nsite_name: Archon Labs'\ntags: ["Technology-Consultants", "Organizations"]\n---`,
+            `---\nurl: https://www.archonlabs.com/\nsite_name: Archon Labs'\ntags: Technology-Consultants, Organizations\n---`,
+            `---\nurl: https://www.archonlabs.com/\nsite_name: Archon Labs'\ntags: \n- Technology Consultants\n- Organizations\n---`,
+            `---\nurl: https://www.archonlabs.com/\nsite_name: Archon Labs'\ntags: 'Technology-Consultants', 'Organizations'\n---`,
         ],
         properSyntax: `---
             url: https://www.archonlabs.com/
@@ -775,9 +750,7 @@ const correctionFunctions = {
 
     // Once detected from the detectError regular expression, 
     // the correction function will attempt to fix the error
-    // by removing the improper character set and adding a ' single mark quote on both sides
-    // the primary cause of this error is a mix of double and single mark quotes in sequence
-    // so be sure to remove all instances of single or double mark quotes as well as any other characters that are not part of the URL
+    // by surrounding error messages with a ' single mark quote on both sides 
     async removeImproperCharacterSetAddSingleMarkQuotes(markdownFileContent, markdownFilePath) {
         const frontmatterData = helperFunctions.extractFrontmatter(markdownFileContent);
         if (!frontmatterData.success) {
