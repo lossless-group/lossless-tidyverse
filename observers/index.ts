@@ -74,6 +74,9 @@ async function main() {
   // === Start RemindersWatcher to process reminders directory ===
   observer.startRemindersWatcher();
   console.log('RemindersWatcher started.');
+  // === Start VocabularyWatcher to process vocabulary directory ===
+  observer.startVocabularyWatcher();
+  console.log('VocabularyWatcher started.');
   console.log('Observer started. Press Ctrl+C to exit.');
   
   // Handle shutdown gracefully

@@ -19,6 +19,8 @@ import { RemindersWatcher } from './watchers/remindersWatcher';
 import { RemindersWatcherOptions } from './types/watcherTypes';
 // --- Import the service-oriented reminders handler ---
 import { processRemindersFrontmatter } from './handlers/remindersHandler';
+// --- Import VocabularyWatcher for modular vocabulary file watching ---
+import { VocabularyWatcher } from './watchers/vocabularyWatcher';
 
 /**
  * FileSystemObserver
@@ -28,9 +30,10 @@ import { processRemindersFrontmatter } from './handlers/remindersHandler';
  */
 export class FileSystemObserver {
   private contentRoot: string;
-  private directoryConfig: typeof USER_OPTIONS.directories[0];
+  private directoryConfigs: typeof USER_OPTIONS.directories;
   private reportingService: ReportingService;
   private remindersWatcher: RemindersWatcher | null = null;
+  private vocabularyWatcher: VocabularyWatcher | null = null;
   private shutdownInitiated: boolean = false;
 
   /**
@@ -42,6 +45,24 @@ export class FileSystemObserver {
   private static processedFiles = new Set<string>();
 
   /**
+   * Add a file to the processed files set
+   * This prevents the file from being processed again in this session
+   * @param filePath Path to the file to mark as processed
+   */
+  public static markFileAsProcessed(filePath: string): void {
+    FileSystemObserver.processedFiles.add(filePath);
+  }
+
+  /**
+   * Check if a file has been processed in this session
+   * @param filePath Path to the file to check
+   * @returns True if the file has been processed, false otherwise
+   */
+  public static hasFileBeenProcessed(filePath: string): boolean {
+    return FileSystemObserver.processedFiles.has(filePath);
+  }
+
+  /**
    * @param templateRegistry (unused, for compatibility)
    * @param reportingService (unused, for compatibility)
    * @param contentRoot Directory root (e.g., /Users/mpstaton/code/lossless-monorepo/content)
@@ -49,9 +70,8 @@ export class FileSystemObserver {
   constructor(templateRegistry: TemplateRegistry, reportingService: ReportingService, contentRoot: string) {
     this.contentRoot = contentRoot;
     this.reportingService = reportingService;
-    // === Directly assign the tooling config from USER_OPTIONS (single source of truth) ===
-    // Only the first directory config with template 'tooling' is supported for now.
-    this.directoryConfig = USER_OPTIONS.directories[0];
+    // Use all directory configurations from USER_OPTIONS
+    this.directoryConfigs = USER_OPTIONS.directories;
     // Register shutdown hooks bound to this instance
     const boundShutdown = this.handleShutdown.bind(this);
     process.on('SIGINT', boundShutdown);
@@ -67,43 +87,43 @@ export class FileSystemObserver {
   }
 
   /**
-   * Starts the observer: watches for .md file changes and logs frontmatter
-   * Uses the path from USER_OPTIONS tooling config
+   * Starts the observer: watches for .md file changes in all configured directories
    */
   public startObserver() {
-    // Compute the absolute path to watch using config
-    const watchPath = path.join(this.contentRoot, this.directoryConfig.path);
-    console.log(`[Observer] Watching for Markdown file changes in: ${watchPath}`);
-    const watcher = chokidar.watch(watchPath, {
-      ignored: /(^|[\/\\])\../, // ignore dotfiles
-      persistent: true,
-      ignoreInitial: true,
-      depth: 10,
-      awaitWriteFinish: {
-        stabilityThreshold: 200,
-        pollInterval: 100,
-      },
-    });
+    // Watch all configured directories
+    for (const dirConfig of this.directoryConfigs) {
+      const watchPath = path.join(this.contentRoot, dirConfig.path);
+      console.log(`[Observer] Watching for Markdown file changes in: ${watchPath}`);
+      
+      const watcher = chokidar.watch(watchPath, {
+        ignored: /(^|[\/\\])\../, // ignore dotfiles
+        persistent: true,
+        ignoreInitial: true,
+        depth: 10,
+        awaitWriteFinish: {
+          stabilityThreshold: 200,
+          pollInterval: 100,
+        },
+      });
 
-    watcher.on('add', this.onChange.bind(this));
-    watcher.on('change', this.onChange.bind(this));
+      // Bind the onChange handler with the specific directory config
+      watcher.on('add', (filePath) => this.onChange(filePath, dirConfig));
+      watcher.on('change', (filePath) => this.onChange(filePath, dirConfig));
+    }
   }
 
   /**
    * Handles file change events (add/change) for Markdown files.
-   * Implements the atomic propertyCollector and expectation management pattern.
-   * Each subsystem/service receives the full extracted frontmatter, returns an expectation object,
-   * and, if acting, returns only changed key-value pairs. The observer merges all results and writes once.
-   * Aggressively commented per project rules.
-   *
+   * 
    * @param filePath - Path to the changed Markdown file
+   * @param dirConfig - The directory configuration that matches this file
    */
-  private async onChange(filePath: string) {
+  private async onChange(filePath: string, dirConfig: typeof USER_OPTIONS.directories[0]) {
     // Only process Markdown files
     if (!this.isMarkdownFile(filePath)) return;
     // === PATCH: Prevent infinite loop by skipping files already processed in this session ===
     if (FileSystemObserver.processedFiles.has(filePath)) {
-      if (this.directoryConfig.services.logging?.openGraph) {
+      if (dirConfig.services.logging?.openGraph) {
         console.log(`[Observer] [SKIP] File already processed in this session, skipping: ${filePath}`);
       }
       return;
@@ -150,9 +170,17 @@ export class FileSystemObserver {
       // (a) Site UUID
       const { expectSiteUUID } = await import('./handlers/addSiteUUID').then(mod => mod.evaluateSiteUUID(originalFrontmatter, filePath));
       propertyCollector.expectations.expectSiteUUID = expectSiteUUID;
-      // (b) OpenGraph
-      const { expectOpenGraph } = await import('./services/openGraphService').then(mod => mod.evaluateOpenGraph(originalFrontmatter, filePath));
-      propertyCollector.expectations.expectOpenGraph = expectOpenGraph;
+      // (b) OpenGraph - ONLY evaluate if enabled in directory config
+      if (dirConfig.services.openGraph === true) {
+        const { expectOpenGraph } = await import('./services/openGraphService').then(mod => mod.evaluateOpenGraph(originalFrontmatter, filePath));
+        propertyCollector.expectations.expectOpenGraph = expectOpenGraph;
+      } else {
+        // OpenGraph is explicitly disabled for this directory
+        propertyCollector.expectations.expectOpenGraph = false;
+        if (dirConfig.services.logging?.openGraph) {
+          console.log(`[Observer] [OpenGraph] OpenGraph is disabled for ${filePath} (directory config: openGraph: false)`);
+        }
+      }
 
       // --- 2. Execute all subsystems that need to act, collect results ---
       // (a) Site UUID (sync)
@@ -162,14 +190,14 @@ export class FileSystemObserver {
         const siteUUID = (addSiteUUIDResult.changes as Record<string, any> | undefined)?.site_uuid;
         if (siteUUID && siteUUID !== (originalFrontmatter as Record<string, any>).site_uuid) {
           propertyCollector.results.site_uuid = siteUUID;
-          if (this.directoryConfig.services.logging?.addSiteUUID) {
+          if (dirConfig.services.logging?.addSiteUUID) {
             console.log(`[Observer] [addSiteUUID] site_uuid added for ${filePath}:`, siteUUID);
           }
         }
         propertyCollector.expectations.expectSiteUUID = false;
       }
-      // (b) OpenGraph (async)
-      if (propertyCollector.expectations.expectOpenGraph) {
+      // (b) OpenGraph (async) - ONLY process if enabled in directory config
+      if (propertyCollector.expectations.expectOpenGraph && dirConfig.services.openGraph === true) {
         // Aggressive, comprehensive, continuous commenting:
         // Call OpenGraph subsystem ONLY to get updated key-values (never writes!)
         // This is the ONLY place where OpenGraph results are merged and written.
@@ -179,21 +207,24 @@ export class FileSystemObserver {
         if (!('og_screenshot_url' in originalFrontmatter)) {
           // Aggressive comment: Only observer triggers screenshot fetch, and only if missing
           const { fetchScreenshotUrl } = await import('./services/openGraphService');
-          // Assume frontmatter has 'og_url' or 'url' to use for screenshot
-          const targetUrl = originalFrontmatter.og_url || originalFrontmatter.url;
-          if (targetUrl) {
-            const screenshotUrl = await fetchScreenshotUrl(targetUrl);
-            if (screenshotUrl) {
-              // Use the atomic, DRY helper (returns updated frontmatter, never writes)
-              const { updateFileWithScreenshotUrl } = await import('./services/openGraphService');
-              const updatedOgFrontmatter = await updateFileWithScreenshotUrl(filePath, screenshotUrl);
-              if (updatedOgFrontmatter && updatedOgFrontmatter.og_screenshot_url) {
-                ogKeyValues.og_screenshot_url = updatedOgFrontmatter.og_screenshot_url;
-                if (this.directoryConfig.services.logging?.openGraph) {
-                  console.log(`[Observer] [fetchScreenshotUrl] Added og_screenshot_url for ${filePath}:`, updatedOgFrontmatter.og_screenshot_url);
+          // Only fetch screenshot if OpenGraph is enabled for this directory
+          if (dirConfig.services.openGraph === true) {
+            // Only fetch screenshot if we have a URL to fetch from
+            if ('og_url' in ogKeyValues && typeof ogKeyValues.og_url === 'string') {
+              try {
+                const screenshotUrl = await fetchScreenshotUrl(ogKeyValues.og_url);
+                if (screenshotUrl) {
+                  ogKeyValues.og_screenshot_url = screenshotUrl;
+                  if (dirConfig.services.logging?.openGraph) {
+                    console.log(`[Observer] [fetchScreenshotUrl] og_screenshot_url added for ${filePath}:`, screenshotUrl);
+                  }
                 }
+              } catch (err) {
+                console.error(`[Observer] [fetchScreenshotUrl] Error fetching screenshot URL for ${filePath}:`, err);
               }
             }
+          } else if (dirConfig.services.logging?.openGraph) {
+            console.log(`[Observer] [fetchScreenshotUrl] Screenshot URL fetching is disabled for ${filePath} (directory config: openGraph: false)`);
           }
         }
         if (ogKeyValues && Object.keys(ogKeyValues).length > 0) {
@@ -206,12 +237,12 @@ export class FileSystemObserver {
           const anyOgFieldChanged = ogKeys.some(key => key in ogKeyValues);
           if (anyOgFieldChanged) {
             ogKeyValues.og_last_fetch = new Date().toISOString();
-            if (this.directoryConfig.services.logging?.openGraph) {
+            if (dirConfig.services.logging?.openGraph) {
               console.log(`[Observer] [og_last_fetch] Set og_last_fetch for ${filePath}: ${ogKeyValues.og_last_fetch}`);
             }
           }
           Object.assign(propertyCollector.results, ogKeyValues);
-          if (this.directoryConfig.services.logging?.openGraph) {
+          if (dirConfig.services.logging?.openGraph) {
             console.log(`[Observer] [fetchOpenGraph] OpenGraph properties updated for ${filePath}:`, ogKeyValues);
           }
         } else if (
@@ -220,7 +251,7 @@ export class FileSystemObserver {
         ) {
           // Always write error fields, even if no OG fields were updated
           Object.assign(propertyCollector.results, ogKeyValues);
-          if (this.directoryConfig.services.logging?.openGraph) {
+          if (dirConfig.services.logging?.openGraph) {
             console.log(`[Observer] [og_error] Wrote OpenGraph error fields for ${filePath}:`, ogKeyValues);
           }
         } else {
@@ -229,7 +260,7 @@ export class FileSystemObserver {
           propertyCollector.results.og_errors = true;
           propertyCollector.results.og_last_error = new Date().toISOString();
           propertyCollector.results.og_error_message = 'OpenGraph subsystem did not return any data (timeout or crash).';
-          if (this.directoryConfig.services.logging?.openGraph) {
+          if (dirConfig.services.logging?.openGraph) {
             console.log(`[Observer] [og_error] Timeout or empty result for ${filePath}, wrote og_error_message.`);
           }
         }
@@ -244,12 +275,12 @@ export class FileSystemObserver {
         const updatedFrontmatter = { ...originalFrontmatter, ...propertyCollector.results };
         await writeFrontmatterToFile(filePath, updatedFrontmatter);
         // Logging: final frontmatter written
-        if (this.directoryConfig.services.logging?.extractedFrontmatter) {
+        if (dirConfig.services.logging?.extractedFrontmatter) {
           console.log(`[Observer] [FINAL] Final frontmatter for ${filePath}:`, updatedFrontmatter);
         }
       } else {
         // Logging: no changes, no write performed
-        if (this.directoryConfig.services.logging?.extractedFrontmatter) {
+        if (dirConfig.services.logging?.extractedFrontmatter) {
           console.log(`[Observer] [FINAL] No changes for ${filePath}; no write performed.`);
         }
       }
@@ -303,12 +334,70 @@ export class FileSystemObserver {
   }
 
   /**
+   * Set up and start the VocabularyWatcher alongside the main observer.
+   * This ensures that files in the vocabulary directory are properly processed
+   * according to the vocabulary template configuration.
+   * 
+   * Aggressive comments: The VocabularyWatcher is a specialized watcher that handles
+   * vocabulary-specific processing and validation. It works in parallel with the main
+   * observer to ensure that vocabulary files are properly processed.
+   */
+  public startVocabularyWatcher() {
+    // Find the vocabulary directory configuration from USER_OPTIONS
+    const vocabDirConfig = this.directoryConfigs.find(d => d.template === 'vocabulary');
+    
+    if (!vocabDirConfig) {
+      console.warn('[Observer] No vocabulary directory configuration found in USER_OPTIONS. VocabularyWatcher not started.');
+      return;
+    }
+    
+    // Construct the full path to the vocabulary directory
+    const vocabularyDir = path.join(this.contentRoot, vocabDirConfig.path);
+    
+    // Verify the directory exists
+    if (!fs.existsSync(vocabularyDir)) {
+      console.warn(`[Observer] Vocabulary directory not found at ${vocabularyDir}. VocabularyWatcher not started.`);
+      return;
+    }
+    
+    console.log(`[Observer] Starting VocabularyWatcher for directory: ${vocabularyDir}`);
+    
+    // Instantiate and start the VocabularyWatcher with the vocabulary directory path
+    this.vocabularyWatcher = new VocabularyWatcher(
+      this.reportingService, 
+      vocabularyDir,
+      // Pass a callback to mark files as processed in the main observer
+      (filePath: string) => FileSystemObserver.markFileAsProcessed(filePath),
+      // Pass a callback to check if files have been processed in the main observer
+      (filePath: string) => FileSystemObserver.hasFileBeenProcessed(filePath)
+    );
+    this.vocabularyWatcher.start();
+    
+    console.log('[Observer] VocabularyWatcher started successfully.');
+  }
+
+  /**
+   * Stop the VocabularyWatcher if running.
+   */
+  public stopVocabularyWatcher() {
+    if (this.vocabularyWatcher) {
+      this.vocabularyWatcher.stop();
+      this.vocabularyWatcher = null;
+      console.log('[Observer] VocabularyWatcher stopped.');
+    }
+  }
+
+  /**
    * Idempotent shutdown handler: writes final report on shutdown signal.
    */
   private async handleShutdown() {
     if (this.shutdownInitiated) return;
     this.shutdownInitiated = true;
     try {
+      // Stop any active watchers
+      this.stopRemindersWatcher();
+      this.stopVocabularyWatcher();
+      
       console.log('[Observer] Shutdown signal received. Writing final report...');
       if (this.reportingService && typeof this.reportingService.writeReport === 'function') {
         const reportPath = await this.reportingService.writeReport();

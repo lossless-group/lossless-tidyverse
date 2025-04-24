@@ -17,9 +17,6 @@ import vocabularyTemplate from '../templates/vocabulary';
 import { TemplateField } from '../types/template';
 import { ReportingService } from '../services/reportingService';
 
-// === Directory to Watch ===
-const VOCABULARY_DIR = path.resolve(process.cwd(), 'content/vocabulary');
-
 // === TemplateRegistry Instance (still needed for validation, etc.) ===
 const templateRegistry = new TemplateRegistry();
 
@@ -36,18 +33,39 @@ export class VocabularyWatcher {
   // ---------------------------------------------------------------------------
   // Aggressive Commenting: ReportingService is injected for logging validation
   private reportingService: ReportingService;
+  // Directory to watch - now passed in via constructor
+  private vocabularyDir: string;
+  // Callbacks for file processing status tracking
+  private markFileAsProcessed: (filePath: string) => void;
+  private hasFileBeenProcessed: (filePath: string) => boolean;
 
   // ---------------------------------------------------------------------------
   /**
    * Construct a VocabularyWatcher
    * @param reportingService - ReportingService instance for logging validation results
+   * @param vocabularyDir - Full path to the vocabulary directory to watch
+   * @param markFileAsProcessed - Callback to mark a file as processed in the main observer
+   * @param hasFileBeenProcessed - Callback to check if a file has been processed in the main observer
    */
-  constructor(reportingService: ReportingService) {
+  constructor(
+    reportingService: ReportingService, 
+    vocabularyDir: string,
+    markFileAsProcessed: (filePath: string) => void,
+    hasFileBeenProcessed: (filePath: string) => boolean
+  ) {
     // Aggressive Commenting: Set up chokidar watcher for Markdown files in vocabulary directory only
     this.reportingService = reportingService;
-    this.watcher = chokidar.watch(path.join(VOCABULARY_DIR, '**/*.md'), {
+    this.vocabularyDir = vocabularyDir;
+    this.markFileAsProcessed = markFileAsProcessed;
+    this.hasFileBeenProcessed = hasFileBeenProcessed;
+    
+    console.log(`[VocabularyWatcher] Initializing watcher for directory: ${this.vocabularyDir}`);
+    
+    this.watcher = chokidar.watch(path.join(this.vocabularyDir, '**/*.md'), {
       ignoreInitial: false,
-      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
+      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
+      ignored: /(^|[\/\\])\../, // ignore dotfiles
+      persistent: true,
     });
     this.setupEventHandlers();
   }
@@ -67,19 +85,40 @@ export class VocabularyWatcher {
    * @param eventType 'add' or 'change'
    */
   private async handleFile(filePath: string, eventType: string) {
+    // === CRITICAL: Prevent infinite loop by skipping files already processed in this session ===
+    if (this.hasFileBeenProcessed(filePath)) {
+      console.log(`[VocabularyWatcher] [SKIP] File already processed in this session, skipping: ${filePath}`);
+      return;
+    }
+    
+    // Add file to processed set to prevent future processing in this session
+    this.markFileAsProcessed(filePath);
+    
     try {
       // Aggressive log: Entry
       console.log(`[VocabularyWatcher] [${eventType}] Detected: ${filePath}`);
+      
+      // Read file content
       const content = await fs.readFile(filePath, 'utf8');
+      
+      // Extract frontmatter (single source of truth)
       const originalFrontmatter = extractFrontmatter(content);
-      let updatedFrontmatter = originalFrontmatter ? { ...originalFrontmatter } : {};
+      if (!originalFrontmatter) {
+        // Warn if no valid frontmatter found
+        console.warn(`[VocabularyWatcher] No valid frontmatter found in ${filePath}`);
+        return;
+      }
+      
+      // === Property Collector Pattern ===
+      // Only collect properties that need to be changed, don't modify original
+      const propertyCollector: Record<string, any> = {};
       let changed = false;
 
       // === Validate and add missing fields ===
       for (const [key, fieldRaw] of Object.entries(vocabularyTemplate.required)) {
         const field = fieldRaw as TemplateField;
-        if (!(key in updatedFrontmatter) || updatedFrontmatter[key] === '' || updatedFrontmatter[key] === undefined) {
-          updatedFrontmatter[key] =
+        if (!(key in originalFrontmatter) || originalFrontmatter[key] === '' || originalFrontmatter[key] === undefined) {
+          propertyCollector[key] =
             typeof field.defaultValueFn === 'function'
               ? field.defaultValueFn(filePath)
               : field.defaultValue !== undefined
@@ -92,12 +131,19 @@ export class VocabularyWatcher {
 
       // === If changed, update file ===
       if (changed) {
+        // Update date_modified
+        propertyCollector.date_modified = new Date().toISOString();
+        
+        // Merge: overlay the collector on the original frontmatter
+        const updatedFrontmatter = { ...originalFrontmatter, ...propertyCollector };
+        
+        // Write the updated frontmatter to file
         const newContent = updateFrontmatter(content, updatedFrontmatter);
         await fs.writeFile(filePath, newContent, 'utf8');
+        
         console.log(`[VocabularyWatcher] Updated frontmatter written to: ${filePath}`);
-        // === CRITICAL: Register file as processed for reportingService ===
-        // This ensures the main observer report includes vocabularyWatcher activity
-        // NOTE: The dummy validation result must include warnings: [] to satisfy ValidationResult type
+        
+        // === Register file as processed for reportingService ===
         this.reportingService.logValidation(filePath, { valid: true, errors: [], warnings: [] });
       } else {
         console.log(`[VocabularyWatcher] No frontmatter changes needed for: ${filePath}`);
@@ -111,7 +157,7 @@ export class VocabularyWatcher {
    * Start watching
    */
   public start() {
-    console.log(`[VocabularyWatcher] Started watching: ${VOCABULARY_DIR}`);
+    console.log(`[VocabularyWatcher] Started watching: ${this.vocabularyDir}`);
   }
 
   /**
@@ -122,14 +168,3 @@ export class VocabularyWatcher {
     console.log('[VocabularyWatcher] Stopped watching for file changes');
   }
 }
-
-// === Export a default instance for easy integration ===
-// NOTE: You must now provide a ReportingService instance when constructing
-//       VocabularyWatcher. The default export is removed to prevent misuse.
-// export const vocabularyWatcher = new VocabularyWatcher();
-
-// === Usage Example (to be toggled by User Options elsewhere) ===
-// if (USER_OPTIONS.directories.find(d => d.template === 'vocabulary' && d.enabled)) {
-//   const vocabularyWatcher = new VocabularyWatcher(reportingService);
-//   vocabularyWatcher.start();
-// }

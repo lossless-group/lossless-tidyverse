@@ -12,7 +12,7 @@ const path = require('path');
 // ================================================
 
 // Directory to process
-const TARGET_DIR = "/Users/mpstaton/code/lossless-monorepo/content/essays";
+const TARGET_DIR = "/Users/mpstaton/code/lossless-monorepo/content/lost-in-public/prompts";
 
 // ================================================
 // Main function to process files

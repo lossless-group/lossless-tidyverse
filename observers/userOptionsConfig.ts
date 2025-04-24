@@ -80,10 +80,13 @@ export const USER_OPTIONS: UserOptions = {
         citations: true,
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
-          addSiteUUID: false,
+          addSiteUUID: true,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
     },
     {
       path: 'lost-in-public/prompts',
