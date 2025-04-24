@@ -121,27 +121,34 @@ class ProcessedFilesTracker {
    * @param generateHash Whether to generate a content hash for the file
    */
   public markAsProcessed(filePath: string, generateHash: boolean = false): void {
+    console.log(`[ProcessedFilesTracker] Marking file as processed: ${filePath}`);
+    
     // Special case: If filePath is 'RESET', reset the processed files set
     if (filePath === 'RESET') {
       console.log('[ProcessedFilesTracker] Received RESET signal');
       this.reset();
       return;
     }
-
+    
     const fileInfo: ProcessedFileInfo = {
       timestamp: Date.now()
     };
-
-    // Generate content hash if requested
+    
+    // Optionally generate a content hash to detect actual changes
     if (generateHash) {
       try {
-        const content = fs.readFileSync(filePath, 'utf8');
-        fileInfo.hash = crypto.createHash('md5').update(content).digest('hex');
+        if (fs.existsSync(filePath)) {
+          const fileContent = fs.readFileSync(filePath, 'utf8');
+          fileInfo.hash = crypto.createHash('md5').update(fileContent).digest('hex');
+          console.log(`[ProcessedFilesTracker] Generated content hash for ${filePath}: ${fileInfo.hash.substring(0, 8)}...`);
+        } else {
+          console.warn(`[ProcessedFilesTracker] Cannot generate hash for non-existent file: ${filePath}`);
+        }
       } catch (error) {
-        console.warn(`[ProcessedFilesTracker] Error generating hash for ${filePath}:`, error);
+        console.error(`[ProcessedFilesTracker] Error generating hash for ${filePath}:`, error);
       }
     }
-
+    
     this.processedFiles.set(filePath, fileInfo);
     
     // Log periodically to avoid excessive output
@@ -162,13 +169,13 @@ class ProcessedFilesTracker {
    * @returns True if the file should be processed, false otherwise
    */
   public shouldProcess(filePath: string, forceProcess: boolean = false): boolean {
-    // Always process if force flag is set
+    // Always process if forced
     if (forceProcess) {
-      console.log(`[ProcessedFilesTracker] Force processing enabled for ${filePath}`);
+      console.log(`[ProcessedFilesTracker] Force processing requested for: ${filePath}`);
       return true;
     }
-
-    // Always process critical files
+    
+    // Check if file is in critical files list
     const fileName = path.basename(filePath).toLowerCase();
     if (this.criticalFiles.includes(fileName)) {
       console.log(`[ProcessedFilesTracker] Critical file detected: ${filePath}, will process`);
@@ -186,6 +193,27 @@ class ProcessedFilesTracker {
     if (now - fileInfo.timestamp > this.expirationMs) {
       console.log(`[ProcessedFilesTracker] Processing entry for ${filePath} has expired, will process again`);
       return true;
+    }
+    
+    // If we have a hash, check if the content has changed
+    if (fileInfo.hash) {
+      try {
+        if (fs.existsSync(filePath)) {
+          const fileContent = fs.readFileSync(filePath, 'utf8');
+          const currentHash = crypto.createHash('md5').update(fileContent).digest('hex');
+          
+          if (currentHash !== fileInfo.hash) {
+            console.log(`[ProcessedFilesTracker] Content hash changed for ${filePath}, will process`);
+            return true;
+          }
+          
+          console.log(`[ProcessedFilesTracker] Content hash unchanged for ${filePath}, skipping`);
+        }
+      } catch (error) {
+        console.error(`[ProcessedFilesTracker] Error checking hash for ${filePath}:`, error);
+        // If we can't check the hash, process the file to be safe
+        return true;
+      }
     }
     
     console.log(`[ProcessedFilesTracker] File ${filePath} was processed recently. Skipping.`);
@@ -208,17 +236,66 @@ class ProcessedFilesTracker {
    * Load state from file if persistence is enabled
    */
   private loadStateFromFile(): void {
+    if (!this.persistStateToFile) {
+      console.log('[ProcessedFilesTracker] State persistence is disabled, skipping state load');
+      return;
+    }
+
     try {
-      if (fs.existsSync(this.stateFilePath)) {
-        const data = fs.readFileSync(this.stateFilePath, 'utf8');
+      console.log(`[ProcessedFilesTracker] Attempting to load state from: ${this.stateFilePath}`);
+      
+      if (!fs.existsSync(this.stateFilePath)) {
+        console.log('[ProcessedFilesTracker] State file does not exist, starting with empty state');
+        return;
+      }
+      
+      // Check if file is readable
+      try {
+        fs.accessSync(this.stateFilePath, fs.constants.R_OK);
+      } catch (accessError) {
+        console.error(`[ProcessedFilesTracker] Cannot read state file: ${this.stateFilePath}`, accessError);
+        return;
+      }
+      
+      const data = fs.readFileSync(this.stateFilePath, 'utf8');
+      if (!data || data.trim() === '') {
+        console.log('[ProcessedFilesTracker] State file is empty, starting with empty state');
+        return;
+      }
+      
+      try {
         const state = JSON.parse(data);
+        
+        if (!state || typeof state !== 'object' || !state.processedFiles) {
+          console.error('[ProcessedFilesTracker] Invalid state file format, starting with empty state');
+          return;
+        }
         
         // Convert the loaded state back to a Map
         this.processedFiles = new Map(Object.entries(state.processedFiles));
-        console.log(`[ProcessedFilesTracker] Loaded ${this.processedFiles.size} processed file entries from state file`);
+        
+        // Validate and clean up loaded entries
+        let invalidEntries = 0;
+        for (const [filePath, info] of this.processedFiles.entries()) {
+          if (!info || typeof info !== 'object' || typeof info.timestamp !== 'number') {
+            this.processedFiles.delete(filePath);
+            invalidEntries++;
+          }
+        }
+        
+        if (invalidEntries > 0) {
+          console.warn(`[ProcessedFilesTracker] Removed ${invalidEntries} invalid entries from loaded state`);
+        }
+        
+        console.log(`[ProcessedFilesTracker] Successfully loaded ${this.processedFiles.size} processed file entries from state file`);
+      } catch (parseError) {
+        console.error('[ProcessedFilesTracker] Error parsing state file JSON:', parseError);
       }
     } catch (error) {
       console.error('[ProcessedFilesTracker] Error loading state from file:', error);
+      // Ensure we start with a clean state in case of errors
+      this.processedFiles.clear();
+      console.log('[ProcessedFilesTracker] Reset to empty state due to load error');
     }
   }
 
@@ -226,14 +303,43 @@ class ProcessedFilesTracker {
    * Save state to file if persistence is enabled
    */
   private saveStateToFile(): void {
+    if (!this.persistStateToFile) {
+      console.log('[ProcessedFilesTracker] State persistence is disabled, skipping state save');
+      return;
+    }
+
     try {
+      console.log(`[ProcessedFilesTracker] Attempting to save state to: ${this.stateFilePath}`);
+      
+      // Ensure directory exists
+      const stateFileDir = path.dirname(this.stateFilePath);
+      if (!fs.existsSync(stateFileDir)) {
+        try {
+          fs.mkdirSync(stateFileDir, { recursive: true });
+          console.log(`[ProcessedFilesTracker] Created directory for state file: ${stateFileDir}`);
+        } catch (mkdirError) {
+          console.error(`[ProcessedFilesTracker] Failed to create directory for state file: ${stateFileDir}`, mkdirError);
+          return;
+        }
+      }
+      
+      // Check if directory is writable
+      try {
+        fs.accessSync(stateFileDir, fs.constants.W_OK);
+      } catch (accessError) {
+        console.error(`[ProcessedFilesTracker] Cannot write to directory: ${stateFileDir}`, accessError);
+        return;
+      }
+      
       // Convert Map to a plain object for JSON serialization
       const state = {
-        processedFiles: Object.fromEntries(this.processedFiles)
+        processedFiles: Object.fromEntries(this.processedFiles),
+        savedAt: new Date().toISOString(),
+        version: '1.0'
       };
       
       fs.writeFileSync(this.stateFilePath, JSON.stringify(state, null, 2), 'utf8');
-      console.log(`[ProcessedFilesTracker] Saved ${this.processedFiles.size} processed file entries to state file`);
+      console.log(`[ProcessedFilesTracker] Successfully saved ${this.processedFiles.size} processed file entries to state file`);
     } catch (error) {
       console.error('[ProcessedFilesTracker] Error saving state to file:', error);
     }

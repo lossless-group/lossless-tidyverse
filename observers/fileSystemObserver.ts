@@ -93,12 +93,15 @@ export class FileSystemObserver {
     process.on('SIGTERM', boundShutdown);
     process.on('exit', boundShutdown);
     
-    // Initialize the processed files tracker with critical files
+    // Initialize the processed files tracker with critical files from USER_OPTIONS
     initializeProcessedFilesTracker({
-      criticalFiles: ['Why Text Manipulation is Now Mission Critical.md']
+      criticalFiles: USER_OPTIONS.criticalFiles || []
     });
     
     console.log('[Observer] FileSystemObserver initialized with clean processed files state');
+    if (USER_OPTIONS.criticalFiles && USER_OPTIONS.criticalFiles.length > 0) {
+      console.log(`[Observer] Critical files configured: ${USER_OPTIONS.criticalFiles.join(', ')}`);
+    }
   }
 
   /**

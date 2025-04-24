@@ -33,6 +33,14 @@ export interface UserOptions {
   directories: DirectoryConfig[];
   // Add more global options as needed
   AUTO_ADD_MISSING_FRONTMATTER_FIELDS?: boolean; // If true, observer scripts may auto-add missing/empty frontmatter fields with defaults.
+  
+  /**
+   * Critical files that should always be processed regardless of tracking status.
+   * These files will bypass the processed files check and always be processed on each run.
+   * Useful for files that need to be consistently monitored or that serve as triggers for other processes.
+   * File names should be specified without paths (e.g., "example.md").
+   */
+  criticalFiles?: string[];
 }
 
 export const USER_OPTIONS: UserOptions = {
@@ -147,5 +155,13 @@ export const USER_OPTIONS: UserOptions = {
   // Option: If true, observer scripts may auto-add missing/empty frontmatter fields with defaults.
   // If false (default), scripts only report missing/empty fields and DO NOT modify files.
   AUTO_ADD_MISSING_FRONTMATTER_FIELDS: false,
+  
+  /**
+   * Critical files that should always be processed regardless of tracking status.
+   * These files will bypass the processed files check and always be processed on each run.
+   */
+  criticalFiles: [
+    'Why Text Manipulation is Now Mission Critical.md'
+  ],
   // ========================================================================
 };
