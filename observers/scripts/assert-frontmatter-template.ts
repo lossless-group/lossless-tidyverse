@@ -49,7 +49,15 @@ type FieldDef = {
  */
 function serializeFrontmatterToYAML(obj: Record<string, any>): string {
   let yaml = '';
-  for (const [key, value] of Object.entries(obj)) {
+  
+  // First, clean up any unexpected or malformed properties
+  const cleanedObj = { ...obj };
+  // Remove 'changes' property if it exists at the top level
+  if ('changes' in cleanedObj) {
+    delete cleanedObj.changes;
+  }
+  
+  for (const [key, value] of Object.entries(cleanedObj)) {
     if (Array.isArray(value)) {
       if (value.length === 0) {
         // Empty array
@@ -62,11 +70,9 @@ function serializeFrontmatterToYAML(obj: Record<string, any>): string {
         }
       }
     } else if (typeof value === 'object' && value !== null) {
-      // Output YAML object (one level deep)
-      yaml += `${key}:\n`;
-      for (const [k, v] of Object.entries(value)) {
-        yaml += `  ${k}: ${v}\n`;
-      }
+      // Skip objects - they should have been flattened earlier
+      console.log(`[assert-frontmatter-template] WARNING: Skipping object property ${key} during serialization`);
+      continue;
     } else {
       // Output as string
       yaml += `${key}: ${value === undefined ? '' : value}\n`;
@@ -218,11 +224,31 @@ async function assertFrontmatterForFile(filePath: string, template: any) {
       }
       // Handle empty fields that need defaults
       else if (!updatedFrontmatter[key] || 
-              (Array.isArray(updatedFrontmatter[key]) && updatedFrontmatter[key].length === 0)) {
+              (Array.isArray(updatedFrontmatter[key]) && updatedFrontmatter[key].length === 0) ||
+              (typeof updatedFrontmatter[key] === 'object' && updatedFrontmatter[key] !== null)) {
         
         // Use defaultValueFn if available
         if (typeof defTyped.defaultValueFn === 'function') {
-          updatedFrontmatter[key] = defTyped.defaultValueFn(filePath, frontmatter);
+          const defaultValue = defTyped.defaultValueFn(filePath, frontmatter);
+          
+          // Ensure we don't store objects for date fields - convert to string if needed
+          if (defTyped.type === 'date' && typeof defaultValue === 'object' && defaultValue !== null) {
+            // If it's an object with a date property, extract that
+            if (defaultValue.date) {
+              updatedFrontmatter[key] = defaultValue.date;
+            } 
+            // If it's an object with changes.date_created, extract that
+            else if (defaultValue.changes && defaultValue.changes.date_created) {
+              updatedFrontmatter[key] = defaultValue.changes.date_created;
+            }
+            // Otherwise use today's date as fallback
+            else {
+              const now = new Date();
+              updatedFrontmatter[key] = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            }
+          } else {
+            updatedFrontmatter[key] = defaultValue;
+          }
         }
         // Type-based defaults
         else if (defTyped.type === 'string') {

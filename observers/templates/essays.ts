@@ -18,7 +18,22 @@ import { addDateCreated } from '../handlers/addDateCreated';
 
 // Wrapper to adapt addDateCreated to the required signature
 function addDateCreatedWrapper(filePath: string, frontmatter?: Record<string, any>) {
-  return addDateCreated(frontmatter ?? {}, filePath);
+  // addDateCreated returns { changes: { date_created?: string } } 
+  // but we need a simple string for defaultValueFn
+  const result = addDateCreated(frontmatter ?? {}, filePath);
+  
+  // Extract date_created if available
+  if (result.changes && result.changes.date_created) {
+    return result.changes.date_created;
+  }
+  
+  // If no date_created is available in the result, check if it's already in frontmatter
+  if (frontmatter && frontmatter.date_created) {
+    return frontmatter.date_created;
+  }
+  
+  // Last resort fallback to today's date
+  return getTodaysDateYYYYMMDD();
 }
 
 function addSiteUUIDWrapper(filePath: string, frontmatter?: Record<string, any>) {
