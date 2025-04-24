@@ -93,6 +93,7 @@ function formatFrontmatterLine(key: string, value: any): string {
   // This function is responsible for formatting a single YAML frontmatter line according to project rules.
   // It now uses the quoteForYaml helper to ensure correct quoting for all string values.
   // All logic for quoting and escaping is delegated to quoteForYaml for DRYness and single source of truth.
+  // It also checks for already-quoted strings to prevent double-quoting.
 
   // Handle date formatting
   if (key.startsWith('date_') && value) {
@@ -108,6 +109,11 @@ function formatFrontmatterLine(key: string, value: any): string {
     typeof value === 'string' &&
     (key.endsWith('_error') || key.endsWith('_error_message') || key === 'og_error_message')
   ) {
+    // Check if already quoted
+    if ((value.startsWith("'") && value.endsWith("'")) || 
+        (value.startsWith('"') && value.endsWith('"'))) {
+      return `${key}: ${value}\n`;
+    }
     const singleQuoted = `'${value.replace(/'/g, "''")}'`;
     return `${key}: ${singleQuoted}\n`;
   }
@@ -121,6 +127,7 @@ function formatFrontmatterLine(key: string, value: any): string {
 
 /**
  * Assess a string and return the YAML-safe version, using single or double quotes as needed.
+ * - Detects and preserves already-quoted strings
  * - Uses no quotes if safe (bare string, e.g. for URLs).
  * - Uses single quotes unless the string contains a single quote.
  * - Uses double quotes if the string contains a single quote.
@@ -130,6 +137,13 @@ function formatFrontmatterLine(key: string, value: any): string {
  * @returns YAML-safe string with appropriate quoting
  */
 export function quoteForYaml(value: string): string {
+  // First check if the string is already properly quoted
+  if ((value.startsWith("'") && value.endsWith("'")) || 
+      (value.startsWith('"') && value.endsWith('"'))) {
+    // String is already quoted, return as is
+    return value;
+  }
+
   // YAML reserved chars: : # > | { } [ ] , & * ! ? | - < > = % @ ` (and whitespace)
   // Also, whitespace (space, tab, newline) triggers quoting
   const reserved = /[:#>|{}\[\],&*!?|<>=%@`\s]/;

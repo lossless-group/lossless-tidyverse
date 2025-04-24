@@ -50,6 +50,22 @@ export class ReportingService {
   private yamlReorderEvents: Array<{file: string, previousOrder: string[], newOrder: string[], reorderedFields?: string[]}> | null = null;
   
   /**
+   * Shutdown diagnostics tracking
+   * - pendingPromises: Number of pending promises at shutdown time
+   * - pendingFileOperations: Number of pending file operations at shutdown time
+   * - shutdownInitiatedAt: Timestamp when shutdown was initiated
+   * - shutdownCompletedAt: Timestamp when shutdown was completed
+   * - shutdownDiagnostics: Array of diagnostic messages collected during shutdown
+   */
+  private shutdownDiagnostics = {
+    pendingPromises: 0,
+    pendingFileOperations: 0,
+    shutdownInitiatedAt: null as number | null,
+    shutdownCompletedAt: null as number | null,
+    diagnosticMessages: [] as string[]
+  };
+  
+  /**
    * OpenGraph processing statistics
    * - processed: Total number of files processed for OpenGraph data
    * - succeeded: Set of files with successful OpenGraph fetches
@@ -234,6 +250,55 @@ export class ReportingService {
   }
   
   /**
+   * Log the start of the shutdown process
+   */
+  logShutdownInitiated(): void {
+    this.shutdownDiagnostics.shutdownInitiatedAt = Date.now();
+    this.shutdownDiagnostics.diagnosticMessages.push(`Shutdown initiated at ${new Date().toISOString()}`);
+    console.log(`[ReportingService] Logging shutdown initiation at ${new Date().toISOString()}`);
+  }
+
+  /**
+   * Log the completion of the shutdown process
+   */
+  logShutdownCompleted(): void {
+    this.shutdownDiagnostics.shutdownCompletedAt = Date.now();
+    const duration = this.shutdownDiagnostics.shutdownCompletedAt - (this.shutdownDiagnostics.shutdownInitiatedAt || 0);
+    this.shutdownDiagnostics.diagnosticMessages.push(`Shutdown completed at ${new Date().toISOString()} (took ${duration}ms)`);
+    console.log(`[ReportingService] Logging shutdown completion at ${new Date().toISOString()} (took ${duration}ms)`);
+  }
+
+  /**
+   * Log a pending promise at shutdown time
+   * @param description Description of the pending promise
+   */
+  logPendingPromise(description: string): void {
+    this.shutdownDiagnostics.pendingPromises++;
+    this.shutdownDiagnostics.diagnosticMessages.push(`Pending promise at shutdown: ${description}`);
+    console.log(`[ReportingService] Pending promise at shutdown: ${description}`);
+  }
+
+  /**
+   * Log a pending file operation at shutdown time
+   * @param filePath Path to the file being operated on
+   * @param operation Description of the operation (e.g., 'read', 'write')
+   */
+  logPendingFileOperation(filePath: string, operation: string): void {
+    this.shutdownDiagnostics.pendingFileOperations++;
+    this.shutdownDiagnostics.diagnosticMessages.push(`Pending file operation at shutdown: ${operation} on ${filePath}`);
+    console.log(`[ReportingService] Pending file operation at shutdown: ${operation} on ${filePath}`);
+  }
+
+  /**
+   * Log a general shutdown diagnostic message
+   * @param message The diagnostic message
+   */
+  logShutdownDiagnostic(message: string): void {
+    this.shutdownDiagnostics.diagnosticMessages.push(message);
+    console.log(`[ReportingService] Shutdown diagnostic: ${message}`);
+  }
+
+  /**
    * Check if any files have been processed
    * @returns True if any files have been processed, false otherwise
    */
@@ -354,6 +419,8 @@ ${this.formatYamlReorders()}
 
 ## OpenGraph Processing Details
 ${this.formatOpenGraphProcessingDetails()}
+
+${this.formatShutdownDiagnostics()}
 `;
     
     return report;
@@ -653,6 +720,47 @@ ${this.formatOpenGraphProcessingDetails()}
       result += '\n### Files with failed screenshot URL fetches\n';
       for (const file of this.openGraphStats.screenshotFailed) {
         result += `- ${this.createBacklink(file)}\n`;
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Format the shutdown diagnostics for the report
+   * @returns A formatted string
+   */
+  private formatShutdownDiagnostics(): string {
+    if (this.shutdownDiagnostics.diagnosticMessages.length === 0 && 
+        !this.shutdownDiagnostics.shutdownInitiatedAt) {
+      return '';
+    }
+
+    let result = '## Shutdown Diagnostics\n\n';
+    
+    if (this.shutdownDiagnostics.shutdownInitiatedAt) {
+      const initiatedTime = new Date(this.shutdownDiagnostics.shutdownInitiatedAt).toISOString();
+      result += `- Shutdown initiated at: ${initiatedTime}\n`;
+    }
+    
+    if (this.shutdownDiagnostics.shutdownCompletedAt) {
+      const completedTime = new Date(this.shutdownDiagnostics.shutdownCompletedAt).toISOString();
+      const duration = this.shutdownDiagnostics.shutdownCompletedAt - (this.shutdownDiagnostics.shutdownInitiatedAt || 0);
+      result += `- Shutdown completed at: ${completedTime} (took ${duration}ms)\n`;
+    }
+    
+    if (this.shutdownDiagnostics.pendingPromises > 0) {
+      result += `- Pending promises at shutdown: ${this.shutdownDiagnostics.pendingPromises}\n`;
+    }
+    
+    if (this.shutdownDiagnostics.pendingFileOperations > 0) {
+      result += `- Pending file operations at shutdown: ${this.shutdownDiagnostics.pendingFileOperations}\n`;
+    }
+    
+    if (this.shutdownDiagnostics.diagnosticMessages.length > 0) {
+      result += '\n### Diagnostic Messages\n\n';
+      for (const message of this.shutdownDiagnostics.diagnosticMessages) {
+        result += `- ${message}\n`;
       }
     }
     

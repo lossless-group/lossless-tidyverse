@@ -23,6 +23,16 @@ import { processRemindersFrontmatter } from './handlers/remindersHandler';
 import { VocabularyWatcher } from './watchers/vocabularyWatcher';
 // --- Import EssaysWatcher for modular essays file watching ---
 import { EssaysWatcher } from './watchers/essaysWatcher';
+// --- Import the centralized processed files tracker ---
+import { 
+  initializeProcessedFilesTracker, 
+  markFileAsProcessed, 
+  shouldProcessFile, 
+  resetProcessedFilesTracker, 
+  shutdownProcessedFilesTracker,
+  addCriticalFile,
+  processedFilesTracker
+} from './utils/processedFilesTracker';
 
 /**
  * FileSystemObserver
@@ -40,20 +50,22 @@ export class FileSystemObserver {
   private shutdownInitiated: boolean = false;
 
   /**
-   * In-memory set to track files that have already been processed in this session.
-   * This prevents infinite loops and duplicate OpenGraph processing.
-   * Only files NOT in this set are eligible for OpenGraph processing.
-   * The set is reset on process restart (not persisted).
+   * Reset the processed files set
+   * This should be called when the observer is started to ensure a clean slate
    */
-  private static processedFiles = new Set<string>();
+  public resetProcessedFiles(): void {
+    console.log('[Observer] Resetting processed files tracking');
+    resetProcessedFilesTracker();
+    console.log('[Observer] Processed files tracking reset complete');
+  }
 
   /**
    * Add a file to the processed files set
    * This prevents the file from being processed again in this session
    * @param filePath Path to the file to mark as processed
    */
-  public static markFileAsProcessed(filePath: string): void {
-    FileSystemObserver.processedFiles.add(filePath);
+  public markFileAsProcessed(filePath: string): void {
+    markFileAsProcessed(filePath);
   }
 
   /**
@@ -61,8 +73,8 @@ export class FileSystemObserver {
    * @param filePath Path to the file to check
    * @returns True if the file has been processed, false otherwise
    */
-  public static hasFileBeenProcessed(filePath: string): boolean {
-    return FileSystemObserver.processedFiles.has(filePath);
+  public hasFileBeenProcessed(filePath: string): boolean {
+    return !shouldProcessFile(filePath);
   }
 
   /**
@@ -80,6 +92,13 @@ export class FileSystemObserver {
     process.on('SIGINT', boundShutdown);
     process.on('SIGTERM', boundShutdown);
     process.on('exit', boundShutdown);
+    
+    // Initialize the processed files tracker with critical files
+    initializeProcessedFilesTracker({
+      criticalFiles: ['Why Text Manipulation is Now Mission Critical.md']
+    });
+    
+    console.log('[Observer] FileSystemObserver initialized with clean processed files state');
   }
 
   /**
@@ -125,21 +144,23 @@ export class FileSystemObserver {
     // Only process Markdown files
     if (!this.isMarkdownFile(filePath)) return;
     // === PATCH: Prevent infinite loop by skipping files already processed in this session ===
-    if (FileSystemObserver.processedFiles.has(filePath)) {
+    if (this.hasFileBeenProcessed(filePath)) {
       if (dirConfig.services.logging?.openGraph) {
         console.log(`[Observer] [SKIP] File already processed in this session, skipping: ${filePath}`);
       }
       return;
     }
-    FileSystemObserver.processedFiles.add(filePath);
+    this.markFileAsProcessed(filePath);
     try {
       // Read file content
       const fileContent = fs.readFileSync(filePath, 'utf-8');
       // Extract frontmatter (single source of truth)
       const originalFrontmatter = extractFrontmatter(fileContent);
       if (!originalFrontmatter) {
-        // Warn if no valid frontmatter found
-        console.warn(`[Observer] No valid frontmatter found in ${filePath}`);
+        // No valid frontmatter found - this is a primary use case!
+        // For the main observer, we'll log this but let the specialized watchers handle it
+        // This is because the main observer doesn't know which template to apply
+        console.log(`[Observer] No frontmatter found in ${filePath} - specialized watchers will handle this file`);
         return;
       }
 
@@ -366,13 +387,10 @@ export class FileSystemObserver {
     console.log(`[Observer] Starting VocabularyWatcher for directory: ${vocabularyDir}`);
     
     // Instantiate and start the VocabularyWatcher with the vocabulary directory path
+    // Now using the centralized processed files tracker instead of callbacks
     this.vocabularyWatcher = new VocabularyWatcher(
       this.reportingService, 
-      vocabularyDir,
-      // Pass a callback to mark files as processed in the main observer
-      (filePath: string) => FileSystemObserver.markFileAsProcessed(filePath),
-      // Pass a callback to check if files have been processed in the main observer
-      (filePath: string) => FileSystemObserver.hasFileBeenProcessed(filePath)
+      vocabularyDir
     );
     this.vocabularyWatcher.start();
     
@@ -420,13 +438,10 @@ export class FileSystemObserver {
     console.log(`[Observer] Starting EssaysWatcher for directory: ${essaysDir}`);
     
     // Instantiate and start the EssaysWatcher with the essays directory path
+    // Now using the centralized processed files tracker instead of callbacks
     this.essaysWatcher = new EssaysWatcher(
       this.reportingService, 
-      essaysDir,
-      // Pass a callback to mark files as processed in the main observer
-      (filePath: string) => FileSystemObserver.markFileAsProcessed(filePath),
-      // Pass a callback to check if files have been processed in the main observer
-      (filePath: string) => FileSystemObserver.hasFileBeenProcessed(filePath)
+      essaysDir
     );
     this.essaysWatcher.start();
     
@@ -451,6 +466,33 @@ export class FileSystemObserver {
     if (this.shutdownInitiated) return;
     this.shutdownInitiated = true;
     try {
+      // Log shutdown initiation
+      if (this.reportingService) {
+        this.reportingService.logShutdownInitiated();
+        // Log processed files count for diagnostics using the tracker
+        this.reportingService.logShutdownDiagnostic(`Processed files count at shutdown: ${processedFilesTracker.getProcessedFilesCount()}`);
+      }
+
+      // Check for pending operations using Node.js process inspection
+      // Note: This uses Node.js internal APIs that aren't in the TypeScript types
+      try {
+        // Cast process to any to access internal methods
+        const nodeProcess = process as any;
+        const activeHandles = nodeProcess._getActiveHandles?.() || [];
+        const activeRequests = nodeProcess._getActiveRequests?.() || [];
+        const pendingCount = activeHandles.length + activeRequests.length;
+        
+        if (pendingCount > 0 && this.reportingService) {
+          this.reportingService.logShutdownDiagnostic(`Active handles/requests at shutdown: ${pendingCount}`);
+          // Log details about the types of handles
+          const handleTypes = activeHandles.map((h: any) => h.constructor?.name || typeof h).join(', ');
+          this.reportingService.logShutdownDiagnostic(`Handle types: ${handleTypes || 'unknown'}`);
+        }
+      } catch (inspectError) {
+        // Safely handle errors from process inspection
+        console.warn('[Observer] Unable to inspect process for active handles:', inspectError);
+      }
+
       // Stop any active watchers
       this.stopRemindersWatcher();
       this.stopVocabularyWatcher();
@@ -458,19 +500,44 @@ export class FileSystemObserver {
       
       console.log('[Observer] Shutdown signal received. Writing final report...');
       if (this.reportingService && typeof this.reportingService.writeReport === 'function') {
-        const reportPath = await this.reportingService.writeReport();
-        if (reportPath) {
-          console.log(`[Observer] Final report written to: ${reportPath}`);
-        } else {
-          console.warn('[Observer] No report was generated (no files processed).');
+        try {
+          // Log completion before writing report
+          this.reportingService.logShutdownCompleted();
+          
+          const reportPath = await this.reportingService.writeReport();
+          if (reportPath) {
+            console.log(`[Observer] Final report written to: ${reportPath}`);
+          } else {
+            console.warn('[Observer] No report was generated (no files processed).');
+          }
+        } catch (reportError) {
+          const errorMessage = reportError instanceof Error ? reportError.message : String(reportError);
+          console.error('[Observer] Error writing final report:', errorMessage);
+          if (this.reportingService) {
+            this.reportingService.logShutdownDiagnostic(`Error writing final report: ${errorMessage}`);
+          }
         }
       } else {
         console.error('[Observer] ReportingService is not available or misconfigured. Final report NOT written.');
       }
-    } catch (err) {
-      console.error('[Observer] Error during shutdown report generation:', err);
+    } catch (shutdownError) {
+      const errorMessage = shutdownError instanceof Error ? shutdownError.message : String(shutdownError);
+      console.error('[Observer] Error during shutdown report generation:', errorMessage);
+      if (this.reportingService) {
+        this.reportingService.logShutdownDiagnostic(`Error during shutdown: ${errorMessage}`);
+      }
     } finally {
-      setTimeout(() => process.exit(0), 250);
+      
+      // CRITICAL: Explicitly shut down the processed files tracker before exiting
+      // This ensures that when the process is restarted, it starts with a clean slate
+      console.log('[Observer] Shutting down processed files tracker');
+      shutdownProcessedFilesTracker();
+      
+      console.log('[Observer] Exiting in 250ms...');
+      setTimeout(() => {
+        console.log('[Observer] Process exit now.');
+        process.exit(0);
+      }, 250);
     }
   }
 }

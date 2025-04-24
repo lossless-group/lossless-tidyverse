@@ -16,6 +16,8 @@ import { formatFrontmatter, extractFrontmatter, updateFrontmatter } from '../uti
 import essaysTemplate from '../templates/essays';
 import { TemplateField } from '../types/template';
 import { ReportingService } from '../services/reportingService';
+// Import the centralized processed files tracker
+import { markFileAsProcessed, shouldProcessFile, shutdownProcessedFilesTracker } from '../utils/processedFilesTracker';
 
 // === TemplateRegistry Instance (still needed for validation, etc.) ===
 const templateRegistry = new TemplateRegistry();
@@ -35,29 +37,20 @@ export class EssaysWatcher {
   private reportingService: ReportingService;
   // Directory to watch - now passed in via constructor
   private essaysDir: string;
-  // Callbacks for file processing status tracking
-  private markFileAsProcessed: (filePath: string) => void;
-  private hasFileBeenProcessed: (filePath: string) => boolean;
 
   // ---------------------------------------------------------------------------
   /**
    * Construct an EssaysWatcher
    * @param reportingService - ReportingService instance for logging validation results
    * @param essaysDir - Full path to the essays directory to watch
-   * @param markFileAsProcessed - Callback to mark a file as processed in the main observer
-   * @param hasFileBeenProcessed - Callback to check if a file has been processed in the main observer
    */
   constructor(
     reportingService: ReportingService, 
-    essaysDir: string,
-    markFileAsProcessed: (filePath: string) => void,
-    hasFileBeenProcessed: (filePath: string) => boolean
+    essaysDir: string
   ) {
     // Aggressive Commenting: Set up chokidar watcher for Markdown files in essays directory only
     this.reportingService = reportingService;
     this.essaysDir = essaysDir;
-    this.markFileAsProcessed = markFileAsProcessed;
-    this.hasFileBeenProcessed = hasFileBeenProcessed;
     
     console.log(`[EssaysWatcher] Initializing watcher for directory: ${this.essaysDir}`);
     
@@ -86,13 +79,19 @@ export class EssaysWatcher {
    */
   private async handleFile(filePath: string, eventType: string) {
     // === CRITICAL: Prevent infinite loop by skipping files already processed in this session ===
-    if (this.hasFileBeenProcessed(filePath)) {
+    if (!shouldProcessFile(filePath)) {
       console.log(`[EssaysWatcher] [SKIP] File already processed in this session, skipping: ${filePath}`);
       return;
     }
     
+    // Skip test files
+    if (filePath.toLowerCase().includes('test')) {
+      console.log(`[EssaysWatcher] [SKIP] Skipping test file: ${filePath}`);
+      return;
+    }
+    
     // Add file to processed set to prevent future processing in this session
-    this.markFileAsProcessed(filePath);
+    markFileAsProcessed(filePath);
     
     try {
       // Aggressive log: Entry
@@ -103,9 +102,63 @@ export class EssaysWatcher {
       
       // Extract frontmatter (single source of truth)
       const originalFrontmatter = extractFrontmatter(content);
-      if (!originalFrontmatter) {
-        // Warn if no valid frontmatter found
-        console.warn(`[EssaysWatcher] No valid frontmatter found in ${filePath}`);
+      
+      // CRITICAL: For newly added files, we should apply the template
+      // Check if this is a new file (first time we're seeing it)
+      const isNewFile = eventType === 'add';
+      
+      // If it's a new file OR there's no frontmatter, apply the template
+      if (isNewFile || !originalFrontmatter) {
+        console.log(`[EssaysWatcher] ${!originalFrontmatter ? 'No frontmatter found' : 'New file detected'} in ${filePath} - applying template`);
+        
+        // Start with existing frontmatter or empty object
+        const updatedFrontmatter: Record<string, any> = originalFrontmatter || {};
+        
+        // === Property Collector Pattern ===
+        // Only collect properties that need to be changed, don't modify original
+        const propertyCollector: Record<string, any> = {};
+        let changed = false;
+
+        // === Validate and add missing fields ===
+        for (const [key, fieldRaw] of Object.entries(essaysTemplate.required)) {
+          const field = fieldRaw as TemplateField;
+          // Only add/update field if it's missing or empty
+          if (!(key in updatedFrontmatter) || updatedFrontmatter[key] === '' || updatedFrontmatter[key] === undefined) {
+            // Use the template's defaultValueFn to get the value - this is where the logic should be
+            propertyCollector[key] = typeof field.defaultValueFn === 'function'
+              ? field.defaultValueFn(filePath, updatedFrontmatter)
+              : field.defaultValue !== undefined
+                ? field.defaultValue
+                : '';
+            changed = true;
+            console.log(`[EssaysWatcher] Added/updated field '${key}' in ${filePath}`);
+          }
+        }
+        
+        // Only update date_modified if we made changes
+        if (changed) {
+          // Use the template's logic for date_modified if available
+          const dateModifiedField = essaysTemplate.required.date_modified as TemplateField;
+          if (dateModifiedField && typeof dateModifiedField.defaultValueFn === 'function') {
+            propertyCollector.date_modified = dateModifiedField.defaultValueFn(filePath, updatedFrontmatter);
+          }
+          
+          // Merge: overlay the collector on the original frontmatter
+          const mergedFrontmatter = { ...updatedFrontmatter, ...propertyCollector };
+          
+          // Write the updated frontmatter to file
+          const frontmatterYaml = formatFrontmatter(mergedFrontmatter);
+          const newContent = `---\n${frontmatterYaml}---\n\n${content.replace(/^---[\s\S]*?---\s*/, '')}`;
+          await fs.writeFile(filePath, newContent, 'utf8');
+          
+          console.log(`[EssaysWatcher] Updated frontmatter written to: ${filePath}`);
+          console.log(`[EssaysWatcher] Changes made:\n${JSON.stringify(propertyCollector, null, 2)}`);
+          
+          // Register file as processed for reportingService
+          this.reportingService.logValidation(filePath, { valid: true, errors: [], warnings: [] });
+        } else {
+          console.log(`[EssaysWatcher] No frontmatter changes needed for: ${filePath}`);
+        }
         return;
       }
       
@@ -117,22 +170,26 @@ export class EssaysWatcher {
       // === Validate and add missing fields ===
       for (const [key, fieldRaw] of Object.entries(essaysTemplate.required)) {
         const field = fieldRaw as TemplateField;
+        // Only add/update field if it's missing or empty
         if (!(key in originalFrontmatter) || originalFrontmatter[key] === '' || originalFrontmatter[key] === undefined) {
-          propertyCollector[key] =
-            typeof field.defaultValueFn === 'function'
-              ? field.defaultValueFn(filePath)
-              : field.defaultValue !== undefined
-                ? field.defaultValue
-                : '';
+          // Use the template's defaultValueFn to get the value - this is where the logic should be
+          propertyCollector[key] = typeof field.defaultValueFn === 'function'
+            ? field.defaultValueFn(filePath, originalFrontmatter)
+            : field.defaultValue !== undefined
+              ? field.defaultValue
+              : '';
           changed = true;
-          console.log(`[EssaysWatcher] Added/filled missing field '${key}' in ${filePath}`);
+          console.log(`[EssaysWatcher] Added/updated field '${key}' in ${filePath}`);
         }
       }
 
       // === If changed, update file ===
       if (changed) {
-        // Update date_modified
-        propertyCollector.date_modified = new Date().toISOString();
+        // Use the template's logic for date_modified if available
+        const dateModifiedField = essaysTemplate.required.date_modified as TemplateField;
+        if (dateModifiedField && typeof dateModifiedField.defaultValueFn === 'function') {
+          propertyCollector.date_modified = dateModifiedField.defaultValueFn(filePath, originalFrontmatter);
+        }
         
         // Merge: overlay the collector on the original frontmatter
         const updatedFrontmatter = { ...originalFrontmatter, ...propertyCollector };
@@ -166,5 +223,7 @@ export class EssaysWatcher {
   public stop() {
     this.watcher.close();
     console.log('[EssaysWatcher] Stopped watching for file changes');
+    shutdownProcessedFilesTracker();
+    console.log('[EssaysWatcher] Shutdown processed files tracker');
   }
 }

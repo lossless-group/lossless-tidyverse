@@ -13,7 +13,6 @@
 // =============================================================================
 
 import { MetadataTemplate } from '../types/template';
-import { addSiteUUID } from '../handlers/addSiteUUID';
 import { addDateCreated } from '../handlers/addDateCreated';
 
 // Wrapper to adapt addDateCreated to the required signature
@@ -37,7 +36,18 @@ function addDateCreatedWrapper(filePath: string, frontmatter?: Record<string, an
 }
 
 function addSiteUUIDWrapper(filePath: string, frontmatter?: Record<string, any>) {
-  return addSiteUUID(frontmatter ?? {}, filePath);
+  // We need to return a simple string UUID, not an object
+  
+  // First check if frontmatter already has a valid UUID
+  if (frontmatter && frontmatter.site_uuid && typeof frontmatter.site_uuid === 'string' && 
+      /^[0-9a-fA-F-]{36}$/.test(frontmatter.site_uuid)) {
+    return frontmatter.site_uuid;
+  }
+  
+  // If no valid UUID in frontmatter, generate a new one directly
+  // Rather than using the handler which returns an object
+  const { generateUUID } = require('../utils/commonUtils');
+  return generateUUID();
 }
 
 // Returns today's date as 'YYYY-MM-DD' string, no arguments required.
@@ -56,11 +66,22 @@ function addTodaysDateInFormatWrapper(filePath: string, frontmatter?: Record<str
 }
 
 // Utility function to take a filename, remove the .md extension, and replace dashes with spaces.
-function filenameToTitle(filename: string): string {
+function filenameToTitle(filePath: string): string {
+  // Extract just the filename without the path
+  const path = require('path');
+  const filename = path.basename(filePath);
+  
   // Remove the .md extension if present
   let name = filename.endsWith('.md') ? filename.slice(0, -3) : filename;
+  
   // Replace all dashes with spaces
   name = name.replace(/-/g, ' ');
+  
+  // Capitalize the first letter of each word
+  name = name.split(' ')
+    .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+    
   return name;
 }
 

@@ -14,6 +14,8 @@ import remindersTemplate from '../templates/reminders';
 import { RemindersWatcherOptions, WatcherReport, HandlerArgs, OperationHandler, OperationResult } from '../types/watcherTypes';
 import { isEnabledForPath } from '../utils/commonUtils';
 import { addSiteUUID } from '../handlers/addSiteUUID';
+// Import the centralized processed files tracker
+import { markFileAsProcessed, shouldProcessFile } from '../utils/processedFilesTracker';
 
 /**
  * Modular watcher for reminders content collection
@@ -24,11 +26,6 @@ export class RemindersWatcher {
   private reportingService: ReportingService;
   private sendReport: (report: WatcherReport) => void;
   private watcher: chokidar.FSWatcher | null = null;
-
-  // ---------------------------------------------------------------------------
-  // In-memory set to track files already inspected this session
-  // This prevents repeated reporting/inspection of the same file (infinite loop fix)
-  private static processedFiles: Set<string> = new Set();
 
   constructor(options: RemindersWatcherOptions) {
     this.directory = options.directory;
@@ -61,12 +58,12 @@ export class RemindersWatcher {
    */
   private async onChange(filePath: string) {
     // Infinite loop prevention: skip if already processed this session
-    if (RemindersWatcher.processedFiles.has(filePath)) {
+    if (!shouldProcessFile(filePath)) {
       // Aggressive comment: This file has already been inspected/reported this session
       // Only re-inspect if the file changes (chokidar will trigger on actual file change)
       return;
     }
-    RemindersWatcher.processedFiles.add(filePath);
+    markFileAsProcessed(filePath);
 
     // Aggressive ON/OFF logic: skip if addSiteUUID is disabled for this path
     if (!isEnabledForPath(filePath, 'addSiteUUID')) {
