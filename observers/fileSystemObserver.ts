@@ -21,6 +21,8 @@ import { RemindersWatcherOptions } from './types/watcherTypes';
 import { processRemindersFrontmatter } from './handlers/remindersHandler';
 // --- Import VocabularyWatcher for modular vocabulary file watching ---
 import { VocabularyWatcher } from './watchers/vocabularyWatcher';
+// --- Import EssaysWatcher for modular essays file watching ---
+import { EssaysWatcher } from './watchers/essaysWatcher';
 
 /**
  * FileSystemObserver
@@ -34,6 +36,7 @@ export class FileSystemObserver {
   private reportingService: ReportingService;
   private remindersWatcher: RemindersWatcher | null = null;
   private vocabularyWatcher: VocabularyWatcher | null = null;
+  private essaysWatcher: EssaysWatcher | null = null;
   private shutdownInitiated: boolean = false;
 
   /**
@@ -388,6 +391,60 @@ export class FileSystemObserver {
   }
 
   /**
+   * Set up and start the EssaysWatcher alongside the main observer.
+   * This ensures that files in the essays directory are properly processed
+   * according to the essays template configuration.
+   * 
+   * Aggressive comments: The EssaysWatcher is a specialized watcher that handles
+   * essays-specific processing and validation. It works in parallel with the main
+   * observer to ensure that essay files are properly processed.
+   */
+  public startEssaysWatcher() {
+    // Find the essays directory configuration from USER_OPTIONS
+    const essaysDirConfig = this.directoryConfigs.find(d => d.template === 'essays');
+    
+    if (!essaysDirConfig) {
+      console.warn('[Observer] No essays directory configuration found in USER_OPTIONS. EssaysWatcher not started.');
+      return;
+    }
+    
+    // Construct the full path to the essays directory
+    const essaysDir = path.join(this.contentRoot, essaysDirConfig.path);
+    
+    // Verify the directory exists
+    if (!fs.existsSync(essaysDir)) {
+      console.warn(`[Observer] Essays directory not found at ${essaysDir}. EssaysWatcher not started.`);
+      return;
+    }
+    
+    console.log(`[Observer] Starting EssaysWatcher for directory: ${essaysDir}`);
+    
+    // Instantiate and start the EssaysWatcher with the essays directory path
+    this.essaysWatcher = new EssaysWatcher(
+      this.reportingService, 
+      essaysDir,
+      // Pass a callback to mark files as processed in the main observer
+      (filePath: string) => FileSystemObserver.markFileAsProcessed(filePath),
+      // Pass a callback to check if files have been processed in the main observer
+      (filePath: string) => FileSystemObserver.hasFileBeenProcessed(filePath)
+    );
+    this.essaysWatcher.start();
+    
+    console.log('[Observer] EssaysWatcher started successfully.');
+  }
+
+  /**
+   * Stop the EssaysWatcher if running.
+   */
+  public stopEssaysWatcher() {
+    if (this.essaysWatcher) {
+      this.essaysWatcher.stop();
+      this.essaysWatcher = null;
+      console.log('[Observer] EssaysWatcher stopped.');
+    }
+  }
+
+  /**
    * Idempotent shutdown handler: writes final report on shutdown signal.
    */
   private async handleShutdown() {
@@ -397,6 +454,7 @@ export class FileSystemObserver {
       // Stop any active watchers
       this.stopRemindersWatcher();
       this.stopVocabularyWatcher();
+      this.stopEssaysWatcher();
       
       console.log('[Observer] Shutdown signal received. Writing final report...');
       if (this.reportingService && typeof this.reportingService.writeReport === 'function') {
