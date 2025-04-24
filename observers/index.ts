@@ -77,6 +77,9 @@ async function main() {
   // === Start VocabularyWatcher to process vocabulary directory ===
   observer.startVocabularyWatcher();
   console.log('VocabularyWatcher started.');
+  // === Start ConceptsWatcher to process concepts directory ===
+  observer.startConceptsWatcher();
+  console.log('ConceptsWatcher started.');
   // === Start EssaysWatcher to process essays directory ===
   observer.startEssaysWatcher();
   console.log('EssaysWatcher started.');

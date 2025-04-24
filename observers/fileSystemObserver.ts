@@ -21,6 +21,8 @@ import { RemindersWatcherOptions } from './types/watcherTypes';
 import { processRemindersFrontmatter } from './handlers/remindersHandler';
 // --- Import VocabularyWatcher for modular vocabulary file watching ---
 import { VocabularyWatcher } from './watchers/vocabularyWatcher';
+// --- Import ConceptsWatcher for modular concepts file watching ---
+import { ConceptsWatcher } from './watchers/conceptsWatcher';
 // --- Import EssaysWatcher for modular essays file watching ---
 import { EssaysWatcher } from './watchers/essaysWatcher';
 // --- Import the centralized processed files tracker ---
@@ -30,7 +32,6 @@ import {
   shouldProcessFile, 
   resetProcessedFilesTracker, 
   shutdownProcessedFilesTracker,
-  addCriticalFile,
   processedFilesTracker
 } from './utils/processedFilesTracker';
 
@@ -46,6 +47,7 @@ export class FileSystemObserver {
   private reportingService: ReportingService;
   private remindersWatcher: RemindersWatcher | null = null;
   private vocabularyWatcher: VocabularyWatcher | null = null;
+  private conceptsWatcher: ConceptsWatcher | null = null;
   private essaysWatcher: EssaysWatcher | null = null;
   private shutdownInitiated: boolean = false;
 
@@ -412,6 +414,57 @@ export class FileSystemObserver {
   }
 
   /**
+   * Set up and start the ConceptsWatcher alongside the main observer.
+   * This ensures that files in the concepts directory are properly processed
+   * according to the concepts template configuration.
+   * 
+   * Aggressive comments: The ConceptsWatcher is a specialized watcher that handles
+   * concepts-specific processing and validation. It works in parallel with the main
+   * observer to ensure that concept files are properly processed.
+   */
+  public startConceptsWatcher() {
+    // Find the concepts directory configuration from USER_OPTIONS
+    const conceptsDirConfig = this.directoryConfigs.find(d => d.template === 'concepts');
+    
+    if (!conceptsDirConfig) {
+      console.warn('[Observer] Concepts directory configuration not found in USER_OPTIONS. ConceptsWatcher not started.');
+      return;
+    }
+    
+    // Get the full path to the concepts directory
+    const conceptsDir = path.join(this.contentRoot, conceptsDirConfig.path);
+    
+    // Verify the directory exists
+    if (!fs.existsSync(conceptsDir)) {
+      console.warn(`[Observer] Concepts directory not found at ${conceptsDir}. ConceptsWatcher not started.`);
+      return;
+    }
+    
+    console.log(`[Observer] Starting ConceptsWatcher for directory: ${conceptsDir}`);
+    
+    // Instantiate and start the ConceptsWatcher with the concepts directory path
+    // Now using the centralized processed files tracker instead of callbacks
+    this.conceptsWatcher = new ConceptsWatcher(
+      this.reportingService, 
+      conceptsDir
+    );
+    this.conceptsWatcher.start();
+    
+    console.log('[Observer] ConceptsWatcher started successfully.');
+  }
+
+  /**
+   * Stop the ConceptsWatcher if running.
+   */
+  public stopConceptsWatcher() {
+    if (this.conceptsWatcher) {
+      this.conceptsWatcher.stop();
+      this.conceptsWatcher = null;
+      console.log('[Observer] ConceptsWatcher stopped.');
+    }
+  }
+
+  /**
    * Set up and start the EssaysWatcher alongside the main observer.
    * This ensures that files in the essays directory are properly processed
    * according to the essays template configuration.
@@ -477,29 +530,37 @@ export class FileSystemObserver {
       }
 
       // Check for pending operations using Node.js process inspection
-      // Note: This uses Node.js internal APIs that aren't in the TypeScript types
+      let pendingPromises = 0;
       try {
         // Cast process to any to access internal methods
         const nodeProcess = process as any;
         const activeHandles = nodeProcess._getActiveHandles?.() || [];
         const activeRequests = nodeProcess._getActiveRequests?.() || [];
-        const pendingCount = activeHandles.length + activeRequests.length;
-        
-        if (pendingCount > 0 && this.reportingService) {
-          this.reportingService.logShutdownDiagnostic(`Active handles/requests at shutdown: ${pendingCount}`);
-          // Log details about the types of handles
-          const handleTypes = activeHandles.map((h: any) => h.constructor?.name || typeof h).join(', ');
-          this.reportingService.logShutdownDiagnostic(`Handle types: ${handleTypes || 'unknown'}`);
-        }
-      } catch (inspectError) {
-        // Safely handle errors from process inspection
-        console.warn('[Observer] Unable to inspect process for active handles:', inspectError);
+        pendingPromises = activeHandles.length + activeRequests.length;
+      } catch (error) {
+        console.warn('[Observer] Unable to inspect process for active handles:', error);
+      }
+      
+      if (this.reportingService) {
+        this.reportingService.logShutdownDiagnostic(`Pending operations at shutdown: ${pendingPromises}`);
       }
 
-      // Stop any active watchers
-      this.stopRemindersWatcher();
-      this.stopVocabularyWatcher();
-      this.stopEssaysWatcher();
+      // Stop all specialized watchers
+      if (this.remindersWatcher) {
+        this.stopRemindersWatcher();
+      }
+      
+      if (this.vocabularyWatcher) {
+        this.stopVocabularyWatcher();
+      }
+      
+      if (this.conceptsWatcher) {
+        this.stopConceptsWatcher();
+      }
+      
+      if (this.essaysWatcher) {
+        this.stopEssaysWatcher();
+      }
       
       console.log('[Observer] Shutdown signal received. Writing final report...');
       if (this.reportingService && typeof this.reportingService.writeReport === 'function') {

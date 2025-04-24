@@ -50,6 +50,12 @@ export class ReportingService {
   private yamlReorderEvents: Array<{file: string, previousOrder: string[], newOrder: string[], reorderedFields?: string[]}> | null = null;
   
   /**
+   * Tracks the number of reports generated per day
+   * Key format: 'YYYY-MM-DD', value: number of reports generated that day
+   */
+  private dailyReportCounts: Record<string, number> = {};
+  
+  /**
    * Shutdown diagnostics tracking
    * - pendingPromises: Number of pending promises at shutdown time
    * - pendingFileOperations: Number of pending file operations at shutdown time
@@ -787,8 +793,19 @@ ${this.formatShutdownDiagnostics()}
     }
     const today = new Date();
     const dateString = today.toISOString().split('T')[0];
-    const timeString = today.toTimeString().split(' ')[0].replace(/:/g, '-');
-    const filename = `frontmatter-observer-${dateString}-${timeString}.md`;
+    
+    // Track the number of reports generated today
+    if (!this.dailyReportCounts[dateString]) {
+      this.dailyReportCounts[dateString] = 0;
+    }
+    this.dailyReportCounts[dateString]++;
+    
+    // Format the report index with leading zero if needed
+    const reportIndex = this.dailyReportCounts[dateString].toString().padStart(2, '0');
+    
+    // Create filename in the format YYYY-MM-DD_Observer-Report_XX
+    const filename = `${dateString}_Observer-Report_${reportIndex}.md`;
+    
     const filePath = path.join(this.reportDirectory, filename);
     await fs.writeFile(filePath, report, 'utf8');
     console.log(`Report written to ${filePath}`);

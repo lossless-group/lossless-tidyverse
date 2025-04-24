@@ -97,6 +97,22 @@ export const USER_OPTIONS: UserOptions = {
       ]
     },
     {
+      path: 'concepts',
+      template: 'concepts',
+      services: {
+        openGraph: false,
+        citations: true,
+        reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
+        logging: {
+          addSiteUUID: true,
+          openGraph: false
+        }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
+    },
+    {
       path: 'lost-in-public/prompts',
       template: 'prompts',
       services: {
