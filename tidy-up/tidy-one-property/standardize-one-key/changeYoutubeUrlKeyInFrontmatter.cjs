@@ -27,8 +27,8 @@ async function changeYoutubeUrlKey(filePath) {
 
             // Only modify within frontmatter
             if (inFrontmatter && frontmatterCount === 1) {
-                if (line.startsWith('youtube_url:')) {
-                    newLines.push(line.replace('youtube_url:', 'youtube_channel_url:'));
+                if (line.startsWith('banner_image:')) {
+                    newLines.push(line.replace('banner_image:', 'portrait_image:'));
                     modified = true;
                 } else {
                     newLines.push(line);

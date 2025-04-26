@@ -1,0 +1,21 @@
+{
+  "name": "assure-tidy-frontmatter-per-publication",
+  "version": "0.1.0",
+  "description": "Script to enhance frontmatter in prompt files for publication",
+  "main": "enhance-prompts-frontmatter.ts",
+  "type": "module",
+  "scripts": {
+    "start": "ts-node enhance-prompts-frontmatter.ts",
+    "dry-run": "ts-node enhance-prompts-frontmatter.ts --dry-run"
+  },
+  "dependencies": {
+    "glob": "^10.3.10",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.11.24",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

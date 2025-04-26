@@ -1,0 +1,14 @@
+{
+  "name": "tidyverse",
+  "version": "1.0.0",
+  "description": "Scripts for tidying and managing content data within the lossless-monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx observers/index.ts",
+    "find-missing-urls": "tsx tidy-up/tidy-one-property/import-url-where-none/findMissingUrls.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.2"
+  }
+}

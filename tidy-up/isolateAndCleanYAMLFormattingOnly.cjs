@@ -1,5 +1,7 @@
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
+const { REPORTS_DIR } = require('./utils/constants.cjs');
+const { formatRelativePath, writeReport, generateCompletionReportString } = require('./utils/reportUtils.cjs');
 
 // ======================================================================
 // USER CONFIGURATION OPTIONS
@@ -53,10 +55,7 @@ const PROPERTIES_TO_FIX = [
 // ======================================================================
 
 // Input file containing the list of corrupted files
-const REPORT_INPUT_PATH = path.resolve(process.cwd(), 'scripts/data-or-content-generation/fixes-needed/Corrupted-Frontmatter-List.md');
-
-// Output file for the list of fixed files
-const TARGET_OUTPUT_FILE_PATH = path.resolve(process.cwd(), 'scripts/data-or-content-generation/fixes-needed/Completed-Glitch-Corrections.md');
+const REPORT_INPUT_PATH = path.resolve(REPORTS_DIR, 'Corrupted-YAML-Formatting-Input.md');
 
 // ======================================================================
 // IMPLEMENTATION - No need to modify below this line
@@ -189,26 +188,27 @@ const fixedFiles = new Map(); // Map of filePath -> Set of fixed properties
  * @param {string} correctionType - Type of correction to apply
  * @returns {boolean} Whether the file was modified
  */
-function cleanFrontmatterGlitch(filePath, glitchKey, correctionType) {
+async function cleanFrontmatterGlitch(filePath, glitchKey, correctionType) {
     try {
-        console.log(`\nChecking ${filePath} for ${glitchKey}...`);
+        const relativePath = formatRelativePath(filePath);
+        console.log(`\nChecking ${relativePath} for ${glitchKey}...`);
         
         // Add to evaluated files
         evaluatedFiles.add(filePath);
 
         // Read the file
-        const content = fs.readFileSync(filePath, 'utf8');
+        const content = await fs.readFile(filePath, 'utf8');
         
         // Check if the file has YAML frontmatter
         if (!content.startsWith('---\n')) {
-            console.log(`SKIPPED: ${filePath} - No YAML frontmatter`);
+            console.log(`SKIPPED: ${relativePath} - No YAML frontmatter`);
             return false;
         }
         
         // Extract the frontmatter
         const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
         if (!frontmatterMatch) {
-            console.log(`SKIPPED: ${filePath} - Malformed YAML frontmatter`);
+            console.log(`SKIPPED: ${relativePath} - Malformed YAML frontmatter`);
             return false;
         }
         
@@ -218,16 +218,17 @@ function cleanFrontmatterGlitch(filePath, glitchKey, correctionType) {
         // More flexible pattern to find the property regardless of spacing
         const keyPattern = new RegExp(`^\\s*${glitchKey}\\s*:`, 'm');
         if (!keyPattern.test(frontmatter)) {
-            console.log(`SKIPPED: ${filePath} - No ${glitchKey} property found in frontmatter`);
+            // It's okay if the property isn't found, might have been fixed already or not present
+            // console.log(`SKIPPED: ${relativePath} - No ${glitchKey} property found in frontmatter`);
             return false;
         }
         
-        // Debug: Show matched property and surrounding context
+        // Debug: Show matched property and surrounding context (Optional)
+        /*
         const contextLines = frontmatter.split('\n');
         for (let i = 0; i < contextLines.length; i++) {
             if (keyPattern.test(contextLines[i])) {
                 console.log(`Found property at line ${i+1}: ${contextLines[i]}`);
-                // Show a few lines of context
                 const start = Math.max(0, i-2);
                 const end = Math.min(contextLines.length, i+3);
                 console.log("Context:");
@@ -237,7 +238,8 @@ function cleanFrontmatterGlitch(filePath, glitchKey, correctionType) {
                 break;
             }
         }
-        
+        */
+
         // Apply the correction
         let newContent;
         
@@ -293,14 +295,14 @@ function cleanFrontmatterGlitch(filePath, glitchKey, correctionType) {
         
         // Check if anything was changed
         if (newContent === content) {
-            console.log(`SKIPPED: ${filePath} - No changes needed for ${glitchKey}`);
+            // console.log(`SKIPPED: ${relativePath} - No changes needed for ${glitchKey}`);
             return false;
         }
-        
+
         // Write the modified content back to the file
-        fs.writeFileSync(filePath, newContent, 'utf8');
-        console.log(`FIXED: ${filePath} - Fixed ${glitchKey}`);
-        
+        await fs.writeFile(filePath, newContent, 'utf8');
+        console.log(`FIXED: ${relativePath} - Fixed ${glitchKey}`);
+
         // Mark as fixed
         if (!fixedFiles.has(filePath)) {
             fixedFiles.set(filePath, new Set());
@@ -327,14 +329,14 @@ function getFilesToProcess(allCorruptedFiles) {
             const shuffled = [...allCorruptedFiles].sort(() => 0.5 - Math.random());
             const sampleFiles = shuffled.slice(0, sampleSize);
             console.log(`\nSelected ${sampleFiles.length} sample files:`);
-            sampleFiles.forEach(file => console.log(`- ${file.path}`));
+            sampleFiles.forEach(file => console.log(`- ${formatRelativePath(file.path)}`));
             return sampleFiles;
             
         case 'specific':
             // Filter the corrupted files to only include the specific files
             console.log(`\nLooking for these specific files:`);
-            SPECIFIC_FILES_TO_PROCESS.forEach(path => console.log(`- ${path}`));
-            
+            SPECIFIC_FILES_TO_PROCESS.forEach(p => console.log(`- ${formatRelativePath(p) || p}`)); // Handle potential non-content paths
+
             const specificFiles = allCorruptedFiles.filter(file => 
                 SPECIFIC_FILES_TO_PROCESS.some(specificPath => 
                     file.path.includes(specificPath) || specificPath.includes(file.path)
@@ -342,8 +344,8 @@ function getFilesToProcess(allCorruptedFiles) {
             );
             
             console.log(`\nFound ${specificFiles.length} specified files in the corrupted files list:`);
-            specificFiles.forEach(file => console.log(`- ${file.path}`));
-            
+            specificFiles.forEach(file => console.log(`- ${formatRelativePath(file.path)}`));
+
             return specificFiles;
             
         case 'all':
@@ -356,21 +358,23 @@ function getFilesToProcess(allCorruptedFiles) {
 /**
  * Read the report of corrupted files and fix the specified glitches
  */
-function processCorruptedFiles() {
+async function processCorruptedFiles() {
     try {
-        // Check if report file exists
-        if (!fs.existsSync(REPORT_INPUT_PATH)) {
-            console.error(`Report file not found: ${REPORT_INPUT_PATH}`);
-            console.log(`Current working directory: ${process.cwd()}`);
-            console.log('Please make sure the report has been generated first.');
+        // Check if report file exists using fs.access
+        try {
+            await fs.access(REPORT_INPUT_PATH, fs.constants.F_OK);
+        } catch (err) {
+            console.error(`Input report file not found: ${REPORT_INPUT_PATH}`);
+            console.error('Please ensure the input report exists at the specified path.');
+            console.error(`Current working directory: ${process.cwd()}`);
             return;
         }
 
         console.log(`Reading report from: ${REPORT_INPUT_PATH}`);
-        
+
         // Read the report file
-        const reportContent = fs.readFileSync(REPORT_INPUT_PATH, 'utf8');
-        
+        const reportContent = await fs.readFile(REPORT_INPUT_PATH, 'utf8');
+
         // Extract the file paths
         const filePathPattern = /^- (.*?) \(Issues: (.*?)\)$/gm;
         let match;
@@ -380,19 +384,20 @@ function processCorruptedFiles() {
             const filePath = match[1];
             const issues = match[2];
             
-            // Verify the file exists
-            if (fs.existsSync(filePath)) {
+            // Verify the file exists using fs.access
+            try {
+                await fs.access(filePath, fs.constants.F_OK);
                 allCorruptedFiles.push({
                     path: filePath,
                     issues: issues
                 });
-            } else {
-                console.warn(`File does not exist: ${filePath}`);
+            } catch (err) {
+                console.warn(`Input file path from report does not exist or is inaccessible: ${filePath}`);
             }
         }
-        
-        console.log(`Found ${allCorruptedFiles.length} corrupted files in the report.`);
-        
+
+        console.log(`Found ${allCorruptedFiles.length} valid file paths in the report.`);
+
         if (allCorruptedFiles.length === 0) {
             console.log('No files to process. Exiting.');
             return;
@@ -412,7 +417,8 @@ function processCorruptedFiles() {
             
             for (const file of filesToProcess) {
                 count++;
-                const fixed = cleanFrontmatterGlitch(file.path, key, method);
+                // Await the async function call
+                const fixed = await cleanFrontmatterGlitch(file.path, key, method);
                 if (fixed) {
                     fixedCount++;
                 }
@@ -427,9 +433,10 @@ function processCorruptedFiles() {
             console.log(`Fixed ${fixedCount} files with '${key}' issues`);
         }
         
-        // Write the summary of fixed files
-        writeFixedFilesReport();
-        
+        // Generate and write the summary report
+        const reportString = generateCompletionReportString();
+        await writeReport(reportString, 'yaml-formatting-fixes');
+
     } catch (error) {
         console.error(`Error processing corrupted files: ${error.message}`);
         console.error(error.stack);
@@ -437,20 +444,10 @@ function processCorruptedFiles() {
 }
 
 /**
- * Ensure a directory exists, creating it if needed
- * @param {string} dirPath - Path to the directory
+ * Generates a report string of all files that were fixed.
+ * @returns {string} The formatted Markdown report string.
  */
-function ensureDirectoryExists(dirPath) {
-    if (!fs.existsSync(dirPath)) {
-        console.log(`Creating directory: ${dirPath}`);
-        fs.mkdirSync(dirPath, { recursive: true });
-    }
-}
-
-/**
- * Write a report of all files that were fixed
- */
-function writeFixedFilesReport() {
+function generateCompletionReportString() {
     const fixedFilesCount = fixedFiles.size;
     const fixedPropertiesMap = new Map(); // Property -> count
     
@@ -467,13 +464,17 @@ Last updated: ${new Date().toISOString()}
 
 Processing mode: ${PROCESSING_MODE}
 ${PROCESSING_MODE === 'sample' ? `Sample size: ${MAX_SAMPLE_SIZE}` : ''}
-${PROCESSING_MODE === 'specific' ? `Specific files: ${SPECIFIC_FILES_TO_PROCESS.length}` : ''}
+${PROCESSING_MODE === 'specific'
+    ? `Specific files targeted:\n${SPECIFIC_FILES_TO_PROCESS.map(fp => `- ${formatRelativePath(fp) || fp}`).join('\n')}`
+    : ''}
 
 ## Properties Checked
 ${PROPERTIES_TO_FIX.map(prop => `- ${prop.key} (${prop.method})`).join('\n')}
 
 ## Files Evaluated (${evaluatedFiles.size})
-${Array.from(evaluatedFiles).map(file => `- ${file}`).join('\n')}
+${Array.from(evaluatedFiles)
+    .map(file => `- ${formatRelativePath(file)}`)
+    .join('\n')}
 
 ## Summary of Fixes
 - Total files fixed: ${fixedFilesCount}
@@ -489,7 +490,7 @@ ${Array.from(fixedPropertiesMap.entries())
 
     if (fixedFilesCount > 0) {
         for (const [filePath, properties] of fixedFiles.entries()) {
-            reportContent += `\n### ${filePath}\n`;
+            reportContent += `\n### ${formatRelativePath(filePath)}\n`;
             reportContent += `Fixed properties:\n`;
             for (const property of properties) {
                 reportContent += `- ${property}\n`;
@@ -499,19 +500,13 @@ ${Array.from(fixedPropertiesMap.entries())
         reportContent += "\nNo files were modified.";
     }
     
-    // Make sure the directory exists before writing the file
-    const targetDir = path.dirname(TARGET_OUTPUT_FILE_PATH);
-    ensureDirectoryExists(targetDir);
-    
-    // Write the report file
-    try {
-        fs.writeFileSync(TARGET_OUTPUT_FILE_PATH, reportContent, 'utf8');
-        console.log(`\nFix report written to ${TARGET_OUTPUT_FILE_PATH}`);
-    } catch (error) {
-        console.error(`Error writing report to ${TARGET_OUTPUT_FILE_PATH}:`, error);
-    }
+    return reportContent; // Return the string
 }
 
-// Run the script
-console.log('Starting to fix YAML glitches...');
-processCorruptedFiles();
+// Run the script wrapped in an async function
+async function main() {
+    console.log('Starting to fix YAML glitches...');
+    await processCorruptedFiles();
+}
+
+main().catch(console.error);

@@ -3,6 +3,10 @@
 const fs = require('fs').promises;
 const path = require('path');
 
+// Import constants and utility functions
+const { CONTENT_TOOLING_DIR } = require('./utils/constants.cjs');
+const { formatRelativePath, writeReport } = require('./utils/reportUtils.cjs');
+
 /**
  * Check frontmatter for formatting issues:
  * 1. Tags ending with '---'
@@ -103,25 +107,22 @@ async function processDirectory(directory) {
     return results;
 }
 
-async function generateReport(results) {
-    const date = new Date().toISOString().split('T')[0];
-    const reportsDir = path.join(__dirname, 'reports');
-    
-    // Find existing reports to determine next number
-    const files = await fs.readdir(reportsDir);
-    const existingReports = files.filter(f => f.startsWith(`${date}_frontmatter-format-report`));
-    const nextNumber = existingReports.length + 1;
-    
-    const reportPath = path.join(reportsDir, `${date}_frontmatter-format-report_${String(nextNumber).padStart(2, '0')}.md`);
-
+/**
+ * Generates the report content string (does not write the file).
+ * @param {Array} results - Array of issue objects from checkFrontmatterFormatting.
+ * @returns {string} The formatted Markdown report string.
+ */
+function generateReportString(results) {
     let report = '# Frontmatter Format Issues Report\n\n';
     report += '## Summary\n';
     report += `- Files with issues: ${results.length}\n\n`;
 
     report += '## Files with Issues\n';
     results.forEach(result => {
-        const relativePath = path.relative(__dirname, result.file);
-        report += `\n### [[${relativePath}]]\n`;
+        // Use formatRelativePath for standardized plain text relative paths
+        const relativePath = formatRelativePath(result.file);
+        // List file using plain text path, not header or backlink
+        report += `\n**${relativePath}**\n`;
         result.issues.forEach(issue => {
             if (issue.lineNumber) {
                 report += `- Line ${issue.lineNumber}: ${issue.type} - ${issue.details}\n`;
@@ -131,14 +132,22 @@ async function generateReport(results) {
         });
     });
 
-    await fs.writeFile(reportPath, report);
-    console.log(`Report written to: ${reportPath}`);
+    return report;
 }
 
 async function main() {
     console.log('Checking frontmatter formatting...');
-    const results = await processDirectory(path.join(__dirname, 'tooling'));
-    await generateReport(results);
+    // Use CONTENT_TOOLING_DIR constant
+    const results = await processDirectory(CONTENT_TOOLING_DIR);
+
+    if (results.length > 0) {
+        // Generate the report string
+        const reportContent = generateReportString(results);
+        // Write the report using the utility function
+        await writeReport(reportContent, 'frontmatter-format');
+    } else {
+        console.log('No frontmatter formatting issues found.');
+    }
 }
 
 main().catch(console.error);
