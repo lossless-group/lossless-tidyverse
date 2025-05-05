@@ -23,7 +23,7 @@ import { extractFrontmatter, writeFrontmatterToFile, formatFrontmatter } from '.
 // Removed unused imports: generateUUID, getFileCreationDate
 
 // === CONFIGURATION: Root content directory (adjust as needed) ===
-const CONTENT_ROOT = path.resolve(__dirname, '../../../content/essays');
+const CONTENT_ROOT = path.resolve(__dirname, '../../../content/lost-in-public/prompts');
 console.log(`[INFO] Processing only: ${CONTENT_ROOT}`);
 
 /**

@@ -118,12 +118,16 @@ export const USER_OPTIONS: UserOptions = {
       services: {
         openGraph: false,
         citations: false,
+        addSiteUUID: true,
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
-          addSiteUUID: false,
+          addSiteUUID: true,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
     },
     {
       path: 'lost-in-public/reminders',
