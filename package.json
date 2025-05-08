@@ -9,6 +9,11 @@
     "find-missing-urls": "tsx tidy-up/tidy-one-property/import-url-where-none/findMissingUrls.mjs"
   },
   "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
     "tsx": "^4.7.2"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "fs-extra": "^11.3.0"
   }
 }

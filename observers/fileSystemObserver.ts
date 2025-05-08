@@ -25,6 +25,8 @@ import { VocabularyWatcher } from './watchers/vocabularyWatcher';
 import { ConceptsWatcher } from './watchers/conceptsWatcher';
 // --- Import EssaysWatcher for modular essays file watching ---
 import { EssaysWatcher } from './watchers/essaysWatcher';
+// --- Import ToolingWatcher for modular tooling file watching ---
+import { ToolingWatcher } from './watchers/toolkitWatcher';
 // --- Import the centralized processed files tracker ---
 import { 
   initializeProcessedFilesTracker, 
@@ -45,10 +47,12 @@ export class FileSystemObserver {
   private contentRoot: string;
   private directoryConfigs: typeof USER_OPTIONS.directories;
   private reportingService: ReportingService;
+  private templateRegistry: TemplateRegistry;
   private remindersWatcher: RemindersWatcher | null = null;
   private vocabularyWatcher: VocabularyWatcher | null = null;
   private conceptsWatcher: ConceptsWatcher | null = null;
   private essaysWatcher: EssaysWatcher | null = null;
+  private toolingWatcher: ToolingWatcher | null = null;
   private shutdownInitiated: boolean = false;
 
   /**
@@ -80,13 +84,14 @@ export class FileSystemObserver {
   }
 
   /**
-   * @param templateRegistry (unused, for compatibility)
-   * @param reportingService (unused, for compatibility)
+   * @param templateRegistry 
+   * @param reportingService 
    * @param contentRoot Directory root (e.g., /Users/mpstaton/code/lossless-monorepo/content)
    */
   constructor(templateRegistry: TemplateRegistry, reportingService: ReportingService, contentRoot: string) {
     this.contentRoot = contentRoot;
     this.reportingService = reportingService;
+    this.templateRegistry = templateRegistry;
     // Use all directory configurations from USER_OPTIONS
     this.directoryConfigs = USER_OPTIONS.directories;
     // Register shutdown hooks bound to this instance
@@ -516,6 +521,56 @@ export class FileSystemObserver {
   }
 
   /**
+   * Set up and start the ToolingWatcher alongside the main observer.
+   * This ensures that files in the tooling directory are properly processed
+   * according to the tooling template configuration.
+   */
+  public startToolingWatcher(): void {
+    if (this.toolingWatcher) {
+      console.log('[Observer] ToolingWatcher is already running.');
+      return;
+    }
+
+    // Find the specific configuration for the 'tooling/Enterprise Jobs-to-be-Done' path
+    // This path is hardcoded for now as per the user's request for a specific watcher path.
+    const specificToolingPathIdentifier = 'tooling/Enterprise Jobs-to-be-Done';
+    const toolingDirConfig = USER_OPTIONS.directories.find(
+      (dir) => dir.path === specificToolingPathIdentifier
+    );
+
+    if (!toolingDirConfig) {
+      console.warn(`[Observer] No configuration found in USER_OPTIONS.directories for path: '${specificToolingPathIdentifier}'. ToolingWatcher will not be started for this specific path.`);
+      // Optionally, you could decide to start it on the generic 'content/tooling' or not start it at all.
+      // For this specific request, if the exact path config isn't found, we won't start the watcher.
+      return; 
+    }
+
+    // Construct the absolute path for the ToolingWatcher
+    const absoluteToolingWatchPath = path.join(this.contentRoot, toolingDirConfig.path);
+
+    console.log(`[Observer] Initializing ToolingWatcher for specific path: ${absoluteToolingWatchPath}...`);
+    this.toolingWatcher = new ToolingWatcher(
+      absoluteToolingWatchPath, 
+      this.reportingService,
+      this.templateRegistry
+    );
+    this.toolingWatcher.start();
+    
+    console.log('[Observer] ToolingWatcher started successfully for specific path.');
+  }
+
+  /**
+   * Stop the ToolingWatcher if running.
+   */
+  public stopToolingWatcher(): void {
+    if (this.toolingWatcher) {
+      this.toolingWatcher.stop();
+      this.toolingWatcher = null;
+      console.log('[Observer] ToolingWatcher stopped.');
+    }
+  }
+
+  /**
    * Idempotent shutdown handler: writes final report on shutdown signal.
    */
   private async handleShutdown() {
@@ -560,6 +615,10 @@ export class FileSystemObserver {
       
       if (this.essaysWatcher) {
         this.stopEssaysWatcher();
+      }
+      
+      if (this.toolingWatcher) {
+        this.stopToolingWatcher();
       }
       
       console.log('[Observer] Shutdown signal received. Writing final report...');

@@ -22,7 +22,7 @@ export interface TemplateField {
    * Returns an object with status and message for reporting.
    * Example: { status: 'ok' | 'empty' | 'malformed' | 'missing', message: string }
    */
-  inspection?: (value: any) => { status: 'ok' | 'empty' | 'malformed' | 'missing', message: string };
+  inspection?: (value: any, filePath?: string, currentFrontmatter?: Record<string, any>) => { status: 'ok' | 'empty' | 'malformed' | 'missing', message: string };
   defaultValue?: any;
   defaultValueFn?: (filePath: string, frontmatter?: Record<string, any>) => any;
 }

@@ -270,6 +270,21 @@ export function extractFrontmatter(content: string): Record<string, any> | null 
 }
 
 /**
+ * Checks if the given content string likely contains YAML frontmatter.
+ * It looks for the standard '---' delimiters at the beginning of the content.
+ * 
+ * @param content The string content to check.
+ * @returns True if frontmatter delimiters are found, false otherwise.
+ */
+export function hasFrontmatter(content: string): boolean {
+  // Regex to check for frontmatter delimiters at the start of the string
+  // Allows for optional whitespace before the first '---'
+  // and requires content between the two '---' blocks.
+  const frontmatterRegex = /^\s*---\r?\n([\s\S]+?)\r?\n---/; 
+  return frontmatterRegex.test(content);
+}
+
+/**
  * Reports basic frontmatter inconsistencies for a Markdown file.
  *
  * @param frontmatter The in-memory frontmatter object to check

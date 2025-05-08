@@ -13,7 +13,7 @@ const path = require('path');
 // ================================================
 
 // Directory to process - update as needed
-const TARGET_DIR = '/Users/mpstaton/code/lossless-monorepo/content/lost-in-public/issue-resolution';
+const TARGET_DIR = '/Users/mpstaton/code/lossless-monorepo/content/lost-in-public/reminders';
 
 // ================================================
 // Helper: Clean frontmatter block by removing empty lines

@@ -85,7 +85,7 @@ export const USER_OPTIONS: UserOptions = {
       template: 'vocabulary',
       services: {
         openGraph: false,
-        citations: true,
+        citations: false,
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
           addSiteUUID: true,
@@ -101,7 +101,7 @@ export const USER_OPTIONS: UserOptions = {
       template: 'concepts',
       services: {
         openGraph: false,
-        citations: true,
+        citations: false,
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
           addSiteUUID: true,
@@ -141,7 +141,10 @@ export const USER_OPTIONS: UserOptions = {
           addSiteUUID: true,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
     },
     {
       path: 'lost-in-public/issue-resolution',
@@ -155,7 +158,10 @@ export const USER_OPTIONS: UserOptions = {
           addSiteUUID: true,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
     },
     {
       path: 'specs',
@@ -168,7 +174,10 @@ export const USER_OPTIONS: UserOptions = {
           addSiteUUID: false,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
     }
   ],
   // ===================== GLOBAL OBSERVER SCRIPT OPTIONS =====================
