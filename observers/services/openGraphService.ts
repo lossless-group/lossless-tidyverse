@@ -245,6 +245,11 @@ export async function processOpenGraphMetadata(
     return { updatedFrontmatter, changed: false };
   }
 
+  // === Clean the URL before using it for API calls ===
+  if (typeof updatedFrontmatter.url === 'string') {
+    updatedFrontmatter.url = updatedFrontmatter.url.replace(/^['"]|['"]$/g, '');
+  }
+
   // --- Fetch Screenshot if needed ---
   if (needsScreenshot) {
     console.log('[OpenGraph] Calling fetchScreenshotUrlInBackground with URL:', updatedFrontmatter.url || updatedFrontmatter.link);

@@ -68,8 +68,13 @@ function urlInspector(fieldName: string, allowEmpty: boolean = false): (value: a
       return allowEmpty ? { status: "ok", message: `${fieldName} is missing (optional and empty allowed)`} : { status: "missing", message: `${fieldName} is missing` };
     }
     if (typeof value !== 'string') return { status: "malformed", message: `${fieldName} is not a string` };
-    if (!allowEmpty && value.trim() === '') return { status: "empty", message: `${fieldName} is empty` };
-    if (value.trim() !== '' && !value.startsWith('http')) return { status: "malformed", message: `${fieldName} does not start with http(s)://` };
+
+    // Clean the value by removing leading/trailing single or double quotes
+    const cleanedValue = value.replace(/^['"]|['"]$/g, '');
+
+    if (!allowEmpty && cleanedValue.trim() === '') return { status: "empty", message: `${fieldName} is empty` };
+    // Validate the cleaned value
+    if (cleanedValue.trim() !== '' && !cleanedValue.startsWith('http')) return { status: "malformed", message: `${fieldName} does not start with http(s)://` };
     return { status: "ok", message: `${fieldName} is a valid URL` };
   };
 }
@@ -123,7 +128,8 @@ const toolingTemplate: MetadataTemplate = {
       type: 'string',
       description: 'Unique identifier for the tool/service',
       inspection: requiredStringInspector('site_uuid'), 
-      defaultValueFn: () => {
+      defaultValueFn: (filePath: string, frontmatter?: Record<string, any>) => { 
+        // filePath and frontmatter are unused for UUID generation, but match type
         return generateUUID();
       }
     },
@@ -131,13 +137,17 @@ const toolingTemplate: MetadataTemplate = {
       type: 'array',
       description: 'Categorization tags',
       inspection: arrayInspector('tags'), 
-      defaultValueFn: generateTagsFromPath 
+      // generateTagsFromPath already takes filePath, ensure it can accept optional frontmatter if needed by type
+      // If generateTagsFromPath's signature is (filePath: string), this will work. 
+      // For full type safety, generateTagsFromPath could be (filePath: string, frontmatter?: Record<string, any>)
+      defaultValueFn: (filePath: string, frontmatter?: Record<string, any>) => generateTagsFromPath(filePath) 
     },
     date_created: {
       type: 'date',
       description: 'Creation date',
       inspection: dateInspector('date_created'), 
-      defaultValueFn: (filePath: string) => {
+      defaultValueFn: (filePath: string, frontmatter?: Record<string, any>) => { 
+        // frontmatter is unused for date_created, but match type
         return getFileCreationDate(filePath);
       }
     },
@@ -145,7 +155,8 @@ const toolingTemplate: MetadataTemplate = {
       type: 'date',
       description: 'Last modification date',
       inspection: dateInspector('date_modified'), 
-      defaultValueFn: () => {
+      defaultValueFn: (filePath: string, frontmatter?: Record<string, any>) => { 
+        // filePath and frontmatter are unused for date_modified, but match type
         return getCurrentDate();
       }
     },

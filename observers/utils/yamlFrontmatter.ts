@@ -270,6 +270,30 @@ export function extractFrontmatter(content: string): Record<string, any> | null 
 }
 
 /**
+ * Extracts the body content (everything after the YAML frontmatter) from markdown content.
+ * 
+ * @param content The markdown content.
+ * @returns The body content as a string. If no frontmatter is found, returns the original content.
+ */
+export function extractBodyContent(content: string): string {
+  if (!content.startsWith('---')) {
+    return content; // No frontmatter detected, return original content
+  }
+  const endIndex = content.indexOf('---', 3); // Find the second '---'
+  if (endIndex === -1) {
+    return content; // Malformed frontmatter or no end delimiter, return original content
+  }
+  // Extract content after the second '---' and trim leading newlines/whitespace
+  let body = content.substring(endIndex + 3);
+  // Remove up to two leading newline characters, common after frontmatter
+  if (body.startsWith('\r\n')) body = body.substring(2);
+  else if (body.startsWith('\n')) body = body.substring(1);
+  if (body.startsWith('\r\n')) body = body.substring(2);
+  else if (body.startsWith('\n')) body = body.substring(1);
+  return body;
+}
+
+/**
  * Checks if the given content string likely contains YAML frontmatter.
  * It looks for the standard '---' delimiters at the beginning of the content.
  * 

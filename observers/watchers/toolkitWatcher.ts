@@ -2,7 +2,13 @@ import * as chokidar from 'chokidar';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import toolingTemplate from '../templates/tooling';
-import { extractFrontmatter, hasFrontmatter, writeFrontmatterToFile } from '../utils/yamlFrontmatter';
+import { 
+  extractFrontmatter, 
+  writeFrontmatterToFile, 
+  hasFrontmatter,
+  formatFrontmatter, 
+  extractBodyContent 
+} from '../utils/yamlFrontmatter';
 import { getCurrentDate } from '../utils/commonUtils';
 import { ReportingService } from '../services/reportingService';
 import { TemplateRegistry } from '../services/templateRegistry';
@@ -90,22 +96,22 @@ export class ToolingWatcher {
         return;
       }
 
-      const frontmatterData = extractFrontmatter(fileContent);
-      if (!frontmatterData) {
-        console.log(`[ToolingWatcher] Could not extract frontmatter from ${filePath}. Skipping.`);
+      const currentFrontmatter = extractFrontmatter(fileContent);
+      const body = extractBodyContent(fileContent);
+
+      if (currentFrontmatter === null) { 
+        console.log(`[ToolingWatcher] Could not extract frontmatter from ${filePath} (returned null). Skipping.`);
         return;
       }
 
-      const { frontmatter: currentFrontmatter, body } = frontmatterData;
       console.log(`[ToolingWatcher] Evaluating frontmatter for: ${filePath}`);
       console.log('[ToolingWatcher] Current Frontmatter:', JSON.stringify(currentFrontmatter, null, 2));
+      // console.log('[ToolingWatcher] Body Content:', body.substring(0, 100) + '...'); // Optional: log snippet of body
 
       const propertyCollector: Record<string, any> = {};
-      let changed = false;
 
-      // Use toolingTemplate directly for now. 
-      // Later, this could come from this.templateRegistry.findTemplate(filePath) or similar
-      const templateToUse = toolingTemplate; 
+      // Ensure the template is correctly identified and used
+      const templateToUse = this.templateRegistry.findTemplate(filePath) || toolingTemplate; 
 
       console.log('\n[ToolingWatcher] --- Evaluating Required Fields ---');
       for (const fieldName in templateToUse.required) {
@@ -127,7 +133,6 @@ export class ToolingWatcher {
         if (inspectionResult.status === 'missing' && fieldDef.defaultValueFn) {
           const defaultValue = fieldDef.defaultValueFn(filePath, currentFrontmatter);
           propertyCollector[fieldName] = defaultValue;
-          changed = true;
           console.log(`  - ${fieldName}: ${inspectionResult.status} - ${inspectionResult.message}. Current: ${resultLog.currentValue}. Proposed Default: ${JSON.stringify(defaultValue)} (to be collected)`);
         } else {
           console.log(`  - ${fieldName}: ${inspectionResult.status} - ${inspectionResult.message}. Current: ${resultLog.currentValue}`);
@@ -154,32 +159,52 @@ export class ToolingWatcher {
         if (inspectionResult.status !== 'ok' && fieldDef.defaultValueFn && currentValue === undefined) {
           const defaultValue = fieldDef.defaultValueFn(filePath, currentFrontmatter);
           propertyCollector[fieldName] = defaultValue;
-          changed = true;
           console.log(`  - ${fieldName}: ${inspectionResult.status} - ${inspectionResult.message}. Current: ${resultLog.currentValue}. Proposed Default (if applicable): ${JSON.stringify(defaultValue)} (to be collected)`);
         } else {
           console.log(`  - ${fieldName}: ${inspectionResult.status} - ${inspectionResult.message}. Current: ${resultLog.currentValue}`);
         }
       }
 
-      if (changed) {
-        console.log('\n[ToolingWatcher] Changes were collected.');
-        // Ensure date_modified is handled if template defines it or if other changes necessitate it
-        const dateModifiedFieldDef = toolingTemplate.required.date_modified || toolingTemplate.optional.date_modified;
-        if (!propertyCollector.hasOwnProperty('date_modified') && dateModifiedFieldDef) {
-          propertyCollector.date_modified = getCurrentDate();
-          console.log(`  - date_modified: Will be updated to ${propertyCollector.date_modified}`);
-        } else if (propertyCollector.hasOwnProperty('date_modified') || dateModifiedFieldDef) { // Also update if explicitly collected or always if defined
-          propertyCollector.date_modified = getCurrentDate();
-          console.log(`  - date_modified: Re-affirmed/updated to ${propertyCollector.date_modified} due to other changes or explicit collection.`);
-        }
+      // --- Handle date_modified after other properties are collected --- 
+      const dateModifiedFieldDef = templateToUse.required.date_modified || templateToUse.optional.date_modified;
+      if (dateModifiedFieldDef) { // Only if date_modified is defined in the template
+        const otherRelevantChangesExist = Object.keys(propertyCollector).some(k => k !== 'date_modified');
+        const needsAdding = !currentFrontmatter.hasOwnProperty('date_modified');
 
+        if (otherRelevantChangesExist || needsAdding) {
+          const newDateModified = getCurrentDate();
+          // Update if: 
+          // 1. date_modified isn't already in propertyCollector with the exact same new value (e.g., from its own template rule)
+          // OR
+          // 2. The newDateModified is different from the existing currentFrontmatter.date_modified or it was initially missing.
+          if ((!propertyCollector.hasOwnProperty('date_modified') || propertyCollector.date_modified !== newDateModified) && 
+              (currentFrontmatter.date_modified !== newDateModified || needsAdding)) {
+            propertyCollector.date_modified = newDateModified;
+            if (needsAdding) {
+              console.log(`  - date_modified: Added ${newDateModified} (was missing and other changes occurred or is a defined field).`);
+            } else {
+              console.log(`  - date_modified: Updated to ${newDateModified} (due to other changes).`);
+            }
+          }
+        }
+      }
+
+      // --- Write to file only if there are accumulated changes --- 
+      if (Object.keys(propertyCollector).length > 0) {
+        console.log('\n[ToolingWatcher] Changes were collected.');
+        
         const proposedFrontmatter = { ...currentFrontmatter, ...propertyCollector };
         console.log('\n[ToolingWatcher] Proposed Frontmatter (if changes were applied):');
         console.log(JSON.stringify(proposedFrontmatter, null, 2));
-        
-        // Write the updated frontmatter to the file using the utility function
-        await writeFrontmatterToFile(filePath, proposedFrontmatter, body);
-        console.log(`[ToolingWatcher] Successfully updated frontmatter for ${filePath}`);
+
+        try {
+          // Pass undefined for templateOrder as it's not directly on MetadataTemplate type
+          // TODO: Consider defining and exporting a templateOrder from tooling.ts if specific order is needed
+          await writeFrontmatterToFile(filePath, proposedFrontmatter, undefined, this.reportingService);
+          console.log(`[ToolingWatcher] Successfully updated frontmatter for ${filePath}`);
+        } catch (error) {
+          console.error(`[ToolingWatcher] Error writing frontmatter to file ${filePath}:`, error);
+        }
 
       } else {
         console.log('\n[ToolingWatcher] No changes proposed based on template evaluation.');
@@ -187,6 +212,7 @@ export class ToolingWatcher {
 
       console.log(`\n[ToolingWatcher] Evaluation complete for: ${filePath}`);
       // Report success to ReportingService
+      // Log validation even if no changes, to signify successful processing of the file structure itself.
       this.reportingService.logValidation(filePath, { valid: true, errors: [], warnings: [] });
       console.log(`[ToolingWatcher] Reported successful processing for ${filePath} to ReportingService.`);
 
