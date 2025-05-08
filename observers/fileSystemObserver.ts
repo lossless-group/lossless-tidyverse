@@ -6,6 +6,7 @@
 
 import chokidar from 'chokidar';
 import { extractFrontmatter, writeFrontmatterToFile, reportPotentialFrontmatterInconsistencies } from './utils/yamlFrontmatter';
+import { formatDate } from './utils/commonUtils'; // Added import for date formatting
 import fs from 'fs';
 import { TemplateRegistry } from './services/templateRegistry';
 import { ReportingService } from './services/reportingService';
@@ -302,9 +303,8 @@ export class FileSystemObserver {
 
       // --- 3. Final merge, update date_modified, write if any changes ---
       if (Object.keys(propertyCollector.results).length > 0) {
-        // Update date_modified first
-        const dateNow = new Date().toISOString();
-        propertyCollector.results.date_modified = dateNow;
+        // Update date_modified first, ensuring YYYY-MM-DD format via formatDate
+        propertyCollector.results.date_modified = formatDate(new Date());
         // Merge: overlay the collector on the original frontmatter (never write only the collector)
         const updatedFrontmatter = { ...originalFrontmatter, ...propertyCollector.results };
         await writeFrontmatterToFile(filePath, updatedFrontmatter);

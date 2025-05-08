@@ -252,6 +252,10 @@ export function extractFrontmatter(content: string): Record<string, any> | null 
             .filter((x) => x.length > 0);
         } else {
           // Default behavior: assign as string
+          // MODIFICATION: Unquote the string value here.
+          if ((value.startsWith("'") && value.endsWith("'")) || (value.startsWith('"') && value.endsWith('"'))) {
+            value = value.substring(1, value.length - 1);
+          }
           frontmatter[key] = value;
         }
       }

@@ -539,6 +539,8 @@ export async function fetchOpenGraphData(
       
       const data = await response.json();
       
+      console.log(`[OpenGraph] Raw API response data.openGraph for ${url}:`, JSON.stringify(data.openGraph, null, 2));
+      
       // --- CHANGE: Ignore hybridGraph, only use openGraph fields ---
       // Validate response data
       if (!data.openGraph) {
@@ -558,6 +560,8 @@ export async function fetchOpenGraphData(
         og_inferred_images: Array.isArray(data.htmlInferred?.images) ? data.htmlInferred.images : [],
         images: Array.isArray(data.images) ? data.images : [],
       };
+      
+      console.log(`[OpenGraph] Constructed ogData (pre-normalization) for ${url}:`, JSON.stringify(ogData, null, 2));
       
       // Clean up data (remove quotes, etc.)
       for (const key of Object.keys(ogData)) {
