@@ -83,6 +83,10 @@ async function main() {
   // === Start EssaysWatcher to process essays directory ===
   observer.startEssaysWatcher();
   console.log('EssaysWatcher started.');
+  // === Start ToolingWatcher to process tooling directory ===
+  observer.startToolingWatcher();
+  console.log('ToolingWatcher started.');
+
   console.log('Observer started. Press Ctrl+C to exit.');
   
   // Handle shutdown gracefully

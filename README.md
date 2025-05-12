@@ -1,5 +1,5 @@
 # Purpose of the Tidyverse
-In order to use AI to generate tons of content, one must keep your content clean and consistent and version controlled.  
+Using Generative AI to generate tons of content can create a giant mess. One must keep your content clean and consistent and version controlled.  
 
 It's a pain, and it involves a lot of scripting and command line work. 
 
@@ -13,7 +13,6 @@ I'm trying to create an "observer" that uses the node filesystem built in functi
 ## Assure one UUID per file
 
 ## Assure proper frontmatter delimiters per property
-
 
 ## Assure frontmatter formatting
 

@@ -5,8 +5,108 @@
  * It includes required and optional fields, validation rules, and default values.
  */
 
+import * as path from 'path'; 
 import { MetadataTemplate } from '../types/template';
-import { generateUUID, getFileCreationDate, getCurrentDate } from '../utils/commonUtils';
+import { 
+  generateUUID, 
+  getFileCreationDate, 
+  getCurrentDate,
+  convertToTrainCase 
+} from '../utils/commonUtils';
+
+type InspectorStatus = "missing" | "malformed" | "empty" | "ok";
+
+function generateTagsFromPath(filePath: string): string[] {
+  try {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    if (!normalizedPath.includes('content/tooling/')) {
+      console.log(`Path does not contain 'content/tooling/': ${filePath}`);
+      return ['Uncategorized'];
+    }
+    const pathAfterTooling = normalizedPath.split('content/tooling/')[1];
+    if (!pathAfterTooling) {
+      console.log(`No path after 'content/tooling/' in: ${filePath}`);
+      return ['Uncategorized'];
+    }
+    const dirParts = path.dirname(pathAfterTooling).split('/');
+    if (dirParts.length === 0 || (dirParts.length === 1 && dirParts[0] === '.')) {
+      console.log(`No directories after 'content/tooling/' in: ${filePath}`);
+      return ['Uncategorized'];
+    }
+    const tags = dirParts.filter(dir => dir && dir !== '.').map(dir => convertToTrainCase(dir));
+    if (tags.length === 0) {
+      return ['Uncategorized'];
+    }
+    console.log(`Generated tags for ${filePath}: ${tags.join(', ')}`);
+    return tags;
+  } catch (error) {
+    console.error(`Error generating tags for ${filePath}:`, error);
+    return ['Uncategorized'];
+  }
+}
+
+function requiredStringInspector(fieldName: string, allowEmpty: boolean = false): (value: any) => { status: InspectorStatus; message: string } {
+  return (value: any) => {
+    if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
+    if (typeof value !== 'string') return { status: "malformed", message: `${fieldName} is not a string` };
+    if (!allowEmpty && value.trim() === '') return { status: "empty", message: `${fieldName} is empty` };
+    return { status: "ok", message: `${fieldName} is present` };
+  };
+}
+
+function optionalStringInspector(fieldName: string): (value: any) => { status: InspectorStatus; message: string } {
+  return (value: any) => {
+    if (typeof value === 'undefined') return { status: "ok", message: `${fieldName} is not present (optional)` }; 
+    if (typeof value !== 'string') return { status: "malformed", message: `${fieldName} is not a string` };
+    return { status: "ok", message: `${fieldName} is present and valid type` };
+  };
+}
+
+function urlInspector(fieldName: string, allowEmpty: boolean = false): (value: any) => { status: InspectorStatus; message: string } {
+  return (value: any) => {
+    if (typeof value === 'undefined') {
+      return allowEmpty ? { status: "ok", message: `${fieldName} is missing (optional and empty allowed)`} : { status: "missing", message: `${fieldName} is missing` };
+    }
+    if (typeof value !== 'string') return { status: "malformed", message: `${fieldName} is not a string` };
+
+    // Clean the value by removing leading/trailing single or double quotes
+    const cleanedValue = value.replace(/^['"]|['"]$/g, '');
+
+    if (!allowEmpty && cleanedValue.trim() === '') return { status: "empty", message: `${fieldName} is empty` };
+    // Validate the cleaned value
+    if (cleanedValue.trim() !== '' && !cleanedValue.startsWith('http')) return { status: "malformed", message: `${fieldName} does not start with http(s)://` };
+    return { status: "ok", message: `${fieldName} is a valid URL` };
+  };
+}
+
+function arrayInspector(fieldName: string, allowEmpty: boolean = false): (value: any) => { status: InspectorStatus; message: string } {
+  return (value: any) => {
+    if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
+    if (!Array.isArray(value)) return { status: "malformed", message: `${fieldName} is not an array` };
+    if (!allowEmpty && value.length === 0) return { status: "empty", message: `${fieldName} is an empty array` };
+    if (Array.isArray(value) && typeof value[0] === 'string' && value[0].trim() === '' && value.length === 1 && !allowEmpty) {
+      return { status: "empty", message: `${fieldName} contains only an empty string` };
+    }
+    return { status: "ok", message: `${fieldName} is a valid array` };
+  };
+}
+
+function dateInspector(fieldName: string): (value: any) => { status: InspectorStatus; message: string } {
+  return (value: any) => {
+    if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
+    if (value === null) return { status: "ok", message: `${fieldName} is null (allowed for optional dates)` }; 
+    if (typeof value !== 'string' && !(value instanceof Date)) return { status: "malformed", message: `${fieldName} is not a string or Date object` };
+    if (typeof value === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      try {
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return { status: "malformed", message: `${fieldName} is not a valid date string (YYYY-MM-DD or ISO)` };
+      } catch (e) {
+        return { status: "malformed", message: `${fieldName} is not a valid date string (YYYY-MM-DD or ISO)` };
+      }
+    }
+    return { status: "ok", message: `${fieldName} is present and appears valid` };
+  };
+}
 
 /**
  * Template for tooling directory files
@@ -27,97 +127,36 @@ const toolingTemplate: MetadataTemplate = {
     site_uuid: {
       type: 'string',
       description: 'Unique identifier for the tool/service',
-      validation: (value) => typeof value === 'string' && value.length > 0,
-      defaultValueFn: () => {
-        // Use the shared utility function for UUID generation
+      inspection: requiredStringInspector('site_uuid'), 
+      defaultValueFn: (filePath: string, frontmatter?: Record<string, any>) => { 
+        // filePath and frontmatter are unused for UUID generation, but match type
         return generateUUID();
       }
     },
     tags: {
       type: 'array',
       description: 'Categorization tags',
-      validation: (value) => {
-        // Handle various tag formats
-        if (Array.isArray(value)) {
-          // Array format is already correct
-          return value.length > 0;
-        } else if (typeof value === 'string') {
-          // If it's a string, it might be a comma-separated list
-          return value.trim().length > 0;
-        }
-        return false;
-      },
-      // Extract all directory names after 'tooling/' and convert to Train-Case
-      defaultValueFn: (filePath: string) => {
-        try {
-          console.log(`Generating tags for ${filePath}`);
-          
-          // Normalize path separators to forward slashes
-          const normalizedPath = filePath.replace(/\\/g, '/');
-          
-          // Check if path contains 'content/tooling/'
-          if (!normalizedPath.includes('content/tooling/')) {
-            console.log(`Path does not contain 'content/tooling/': ${filePath}`);
-            return ['Uncategorized'];
-          }
-          
-          // Extract the part after 'content/tooling/'
-          const pathAfterTooling = normalizedPath.split('content/tooling/')[1];
-          
-          if (!pathAfterTooling) {
-            console.log(`No path after 'content/tooling/' in: ${filePath}`);
-            return ['Uncategorized'];
-          }
-          
-          // Get all directories after 'tooling' (excluding the filename)
-          const dirParts = pathAfterTooling.split('/');
-          // Remove the last part (filename)
-          dirParts.pop();
-          
-          if (dirParts.length === 0) {
-            console.log(`No directories after 'tooling/' in: ${filePath}`);
-            return ['Uncategorized'];
-          }
-          
-          // Convert the directory name to Train-Case
-          const convertToTrainCase = (str: string): string => {
-            if (!str || str.trim() === '') return 'Uncategorized';
-            
-            // Split by spaces, hyphens, or underscores
-            const words = str.split(/[-_\s]+/);
-            
-            // Capitalize first letter of each word
-            return words.map(word => {
-              if (word.length === 0) return word;
-              return word.charAt(0).toUpperCase() + word.slice(1);
-            }).join('-');
-          };
-          
-          // Convert all directory parts to Train-Case and use as tags
-          const tags = dirParts.map(dir => convertToTrainCase(dir));
-          
-          console.log(`Generated tags for ${filePath}: ${tags.join(', ')}`);
-          
-          return tags;
-        } catch (error) {
-          console.error(`Error generating tags for ${filePath}:`, error);
-          return ['Uncategorized'];
-        }
-      }
+      inspection: arrayInspector('tags'), 
+      // generateTagsFromPath already takes filePath, ensure it can accept optional frontmatter if needed by type
+      // If generateTagsFromPath's signature is (filePath: string), this will work. 
+      // For full type safety, generateTagsFromPath could be (filePath: string, frontmatter?: Record<string, any>)
+      defaultValueFn: (filePath: string, frontmatter?: Record<string, any>) => generateTagsFromPath(filePath) 
     },
     date_created: {
       type: 'date',
       description: 'Creation date',
-      defaultValueFn: (filePath: string) => {
-        // Use the shared utility function for file creation date
+      inspection: dateInspector('date_created'), 
+      defaultValueFn: (filePath: string, frontmatter?: Record<string, any>) => { 
+        // frontmatter is unused for date_created, but match type
         return getFileCreationDate(filePath);
       }
     },
     date_modified: {
       type: 'date',
       description: 'Last modification date',
-      defaultValueFn: () => {
-        // Use the shared utility function for current date
+      inspection: dateInspector('date_modified'), 
+      defaultValueFn: (filePath: string, frontmatter?: Record<string, any>) => { 
+        // filePath and frontmatter are unused for date_modified, but match type
         return getCurrentDate();
       }
     },
@@ -128,43 +167,47 @@ const toolingTemplate: MetadataTemplate = {
     url: {
       type: 'string',
       description: 'Official website URL',
-      validation: (value) => typeof value === 'string' && value.startsWith('http')
+      inspection: urlInspector('url', true) 
     },
     image: {
       type: 'string',
       description: 'Image URL for the tool/service',
-      validation: (value) => typeof value === 'string' && value.startsWith('http')
+      inspection: urlInspector('image', true) 
     },
     site_name: {
       type: 'string',
-      description: 'Name of the site/tool'
+      description: 'Name of the site/tool',
+      inspection: optionalStringInspector('site_name') 
     },
     favicon: {
       type: 'string',
       description: 'Favicon URL',
-      validation: (value) => typeof value === 'string' && value.startsWith('http')
+      inspection: urlInspector('favicon', true) 
     },
     youtube_channel_url: {
       type: 'string',
       description: 'YouTube channel URL',
-      validation: (value) => typeof value === 'string' && value.startsWith('http')
+      inspection: urlInspector('youtube_channel_url', true) 
     },
     og_screenshot_url: {
       type: 'string',
       description: 'Open Graph screenshot URL',
-      validation: (value) => typeof value === 'string' && value.startsWith('http')
+      inspection: urlInspector('og_screenshot_url', true) 
     },
     jina_last_request: {
       type: 'string',
-      description: 'Timestamp of last Jina request'
+      description: 'Timestamp of last Jina request',
+      inspection: optionalStringInspector('jina_last_request') 
     },
     jina_error: {
       type: 'string',
-      description: 'Error message from Jina'
+      description: 'Error message from Jina',
+      inspection: optionalStringInspector('jina_error') 
     },
     og_last_fetch: {
       type: 'string',
-      description: 'Timestamp of last Open Graph fetch'
+      description: 'Timestamp of last Open Graph fetch',
+      inspection: optionalStringInspector('og_last_fetch') 
     }
   }
 };

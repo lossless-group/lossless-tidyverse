@@ -11,6 +11,7 @@
 import { formatDate } from './commonUtils';
 import fs from 'fs/promises';
 import { ReportingService } from '../services/reportingService';
+import { MetadataTemplate, TemplateField } from '../types/template';
 
 /**
  * =============================================================
@@ -252,6 +253,10 @@ export function extractFrontmatter(content: string): Record<string, any> | null 
             .filter((x) => x.length > 0);
         } else {
           // Default behavior: assign as string
+          // MODIFICATION: Unquote the string value here.
+          if ((value.startsWith("'") && value.endsWith("'")) || (value.startsWith('"') && value.endsWith('"'))) {
+            value = value.substring(1, value.length - 1);
+          }
           frontmatter[key] = value;
         }
       }
@@ -267,6 +272,45 @@ export function extractFrontmatter(content: string): Record<string, any> | null 
     console.error('Error parsing frontmatter:', error);
     return null;
   }
+}
+
+/**
+ * Extracts the body content (everything after the YAML frontmatter) from markdown content.
+ * 
+ * @param content The markdown content.
+ * @returns The body content as a string. If no frontmatter is found, returns the original content.
+ */
+export function extractBodyContent(content: string): string {
+  if (!content.startsWith('---')) {
+    return content; // No frontmatter detected, return original content
+  }
+  const endIndex = content.indexOf('---', 3); // Find the second '---'
+  if (endIndex === -1) {
+    return content; // Malformed frontmatter or no end delimiter, return original content
+  }
+  // Extract content after the second '---' and trim leading newlines/whitespace
+  let body = content.substring(endIndex + 3);
+  // Remove up to two leading newline characters, common after frontmatter
+  if (body.startsWith('\r\n')) body = body.substring(2);
+  else if (body.startsWith('\n')) body = body.substring(1);
+  if (body.startsWith('\r\n')) body = body.substring(2);
+  else if (body.startsWith('\n')) body = body.substring(1);
+  return body;
+}
+
+/**
+ * Checks if the given content string likely contains YAML frontmatter.
+ * It looks for the standard '---' delimiters at the beginning of the content.
+ * 
+ * @param content The string content to check.
+ * @returns True if frontmatter delimiters are found, false otherwise.
+ */
+export function hasFrontmatter(content: string): boolean {
+  // Regex to check for frontmatter delimiters at the start of the string
+  // Allows for optional whitespace before the first '---'
+  // and requires content between the two '---' blocks.
+  const frontmatterRegex = /^\s*---\r?\n([\s\S]+?)\r?\n---/; 
+  return frontmatterRegex.test(content);
 }
 
 /**
@@ -315,6 +359,51 @@ export function reportPotentialFrontmatterInconsistencies(
 }
 
 /**
+ * Applies a template to an existing frontmatter object, adding default values for missing fields.
+ *
+ * @param currentFrontmatter - The current frontmatter object (can be empty).
+ * @param template - The MetadataTemplate to apply.
+ * @param autoAddMissingFields - Boolean flag to control automatic addition of missing fields with default values.
+ * @param filePath - The path to the file, used by defaultValueFn.
+ * @returns An object containing the potentially modified frontmatter and a boolean indicating if changes were made.
+ */
+export function applyTemplateToFrontmatter(
+  currentFrontmatter: Record<string, any>,
+  template: MetadataTemplate,
+  autoAddMissingFields: boolean,
+  filePath: string // For defaultValueFn
+): { frontmatter: Record<string, any>; modified: boolean } {
+  let modified = false;
+  const newFrontmatter = { ...currentFrontmatter };
+
+  const processFields = (fieldSet: { [key: string]: TemplateField }) => {
+    for (const key in fieldSet) {
+      if (Object.prototype.hasOwnProperty.call(fieldSet, key)) {
+        const templateField = fieldSet[key];
+        if (!Object.prototype.hasOwnProperty.call(newFrontmatter, key)) {
+          if (autoAddMissingFields) {
+            if (templateField.defaultValueFn) {
+              newFrontmatter[key] = templateField.defaultValueFn(filePath, newFrontmatter);
+              modified = true;
+            } else if (templateField.defaultValue !== undefined) {
+              newFrontmatter[key] = templateField.defaultValue;
+              modified = true;
+            }
+          }
+        }
+        // Here, you could add validation logic for existing fields if needed in the future
+        // For example, checking type or running templateField.validation if present
+      }
+    }
+  };
+
+  processFields(template.required);
+  processFields(template.optional);
+
+  return { frontmatter: newFrontmatter, modified };
+}
+
+/**
  * Updates the frontmatter in a Markdown file's content string.
  * If a templateOrder is provided, reorders the YAML keys to match the template.
  *
@@ -324,23 +413,31 @@ export function reportPotentialFrontmatterInconsistencies(
  * @returns The Markdown file content with updated (and possibly reordered) frontmatter
  */
 export function updateFrontmatter(content: string, updatedFrontmatter: Record<string, any>, templateOrder?: string[]): string {
+  const frontmatterYaml = formatFrontmatter(updatedFrontmatter, templateOrder);
+  
+  // Check if content has frontmatter (starts with ---)
+  if (!content.startsWith('---')) {
+    // If content is empty or doesn't have a frontmatter block, create new content with just the frontmatter.
+    // Ensure a newline after the closing '---' for proper formatting.
+    return `---
+${frontmatterYaml}---
+`; // Changed to construct new frontmatter content. Added a trailing newline.
+  }
+  
   // Find the end of the original frontmatter
   const endIndex = content.indexOf('---', 3);
   if (endIndex === -1) {
     return content;
   }
-
-  // Format the frontmatter, using templateOrder if provided
-  const formattedFrontmatter = formatFrontmatter(updatedFrontmatter, templateOrder);
-
+  
   // Extract the body content after the frontmatter
   let bodyContent = content.substring(endIndex + 3);
-
+  
   // Remove leading whitespace from body content
   bodyContent = bodyContent.replace(/^\s+/, '');
-
+  
   // Create new content with proper frontmatter and exactly two newlines after it
-  return `---\n${formattedFrontmatter}---\n\n${bodyContent}`;
+  return `---\n${frontmatterYaml}---\n\n${bodyContent}`;
 }
 
 // === Utility: Remove internal/process-only keys from frontmatter before writing ===

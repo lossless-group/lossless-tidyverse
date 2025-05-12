@@ -44,6 +44,7 @@ export interface UserOptions {
 }
 
 export const USER_OPTIONS: UserOptions = {
+  AUTO_ADD_MISSING_FRONTMATTER_FIELDS: true, // Explicitly added global setting
   directories: [
     // CRITICAL: Place the most specific config blocks first to avoid shadowing by general blocks.
     // The 'content/essays' block MUST come before any block that matches 'content' or a parent directory.
@@ -85,7 +86,7 @@ export const USER_OPTIONS: UserOptions = {
       template: 'vocabulary',
       services: {
         openGraph: false,
-        citations: true,
+        citations: false,
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
           addSiteUUID: true,
@@ -101,7 +102,7 @@ export const USER_OPTIONS: UserOptions = {
       template: 'concepts',
       services: {
         openGraph: false,
-        citations: true,
+        citations: false,
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
           addSiteUUID: true,
@@ -118,12 +119,16 @@ export const USER_OPTIONS: UserOptions = {
       services: {
         openGraph: false,
         citations: false,
+        addSiteUUID: true,
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
-          addSiteUUID: false,
+          addSiteUUID: true,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
     },
     {
       path: 'lost-in-public/reminders',
@@ -137,21 +142,29 @@ export const USER_OPTIONS: UserOptions = {
           addSiteUUID: true,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
     },
     {
-      path: 'lost-in-public/issue-resolution',
-      template: 'issue-resolution',
+      path: 'lost-in-public/issue-resolution', // Path for the issue resolution collection
+      template: 'issue-resolution', // Corresponds to the template ID
       services: {
-        openGraph: false,
-        citations: false,
-        addSiteUUID: true, // <--- ENABLED for this directory
-        reorderYamlToTemplate: false,
+        addSiteUUID: true, // Enable UUID generation
+        openGraph: false, // Disable OpenGraph by default for this collection
+        citations: false, // Disable citations by default
+        reorderYamlToTemplate: true, // Reorder frontmatter to match template
         logging: {
           addSiteUUID: true,
+          extractedFrontmatter: true,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+        { op: 'validateFrontmatter', delayMs: 25 } // Ensure frontmatter validation runs
+      ]
     },
     {
       path: 'specs',
@@ -164,13 +177,15 @@ export const USER_OPTIONS: UserOptions = {
           addSiteUUID: false,
           openGraph: false
         }
-      }
+      },
+      operationSequence: [
+        { op: 'addSiteUUID', delayMs: 25 },
+      ]
     }
   ],
   // ===================== GLOBAL OBSERVER SCRIPT OPTIONS =====================
   // Option: If true, observer scripts may auto-add missing/empty frontmatter fields with defaults.
   // If false (default), scripts only report missing/empty fields and DO NOT modify files.
-  AUTO_ADD_MISSING_FRONTMATTER_FIELDS: false,
   
   /**
    * Critical files that should always be processed regardless of tracking status.

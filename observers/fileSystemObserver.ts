@@ -6,6 +6,7 @@
 
 import chokidar from 'chokidar';
 import { extractFrontmatter, writeFrontmatterToFile, reportPotentialFrontmatterInconsistencies } from './utils/yamlFrontmatter';
+import { formatDate } from './utils/commonUtils'; // Added import for date formatting
 import fs from 'fs';
 import { TemplateRegistry } from './services/templateRegistry';
 import { ReportingService } from './services/reportingService';
@@ -25,6 +26,10 @@ import { VocabularyWatcher } from './watchers/vocabularyWatcher';
 import { ConceptsWatcher } from './watchers/conceptsWatcher';
 // --- Import EssaysWatcher for modular essays file watching ---
 import { EssaysWatcher } from './watchers/essaysWatcher';
+// --- Import ToolingWatcher for modular tooling file watching ---
+import { ToolingWatcher } from './watchers/toolkitWatcher';
+// --- Import IssueResolutionProcessor for issue-resolution collection ---
+import { IssueResolutionProcessor } from './watchers/issueResolutionWatcher';
 // --- Import the centralized processed files tracker ---
 import { 
   initializeProcessedFilesTracker, 
@@ -45,11 +50,15 @@ export class FileSystemObserver {
   private contentRoot: string;
   private directoryConfigs: typeof USER_OPTIONS.directories;
   private reportingService: ReportingService;
+  private templateRegistry: TemplateRegistry;
   private remindersWatcher: RemindersWatcher | null = null;
   private vocabularyWatcher: VocabularyWatcher | null = null;
   private conceptsWatcher: ConceptsWatcher | null = null;
   private essaysWatcher: EssaysWatcher | null = null;
+  private toolingWatcher: ToolingWatcher | null = null;
   private shutdownInitiated: boolean = false;
+  // === Add IssueResolutionProcessor instance ===
+  private issueResolutionProcessor: IssueResolutionProcessor | null = null;
 
   /**
    * Reset the processed files set
@@ -80,15 +89,18 @@ export class FileSystemObserver {
   }
 
   /**
-   * @param templateRegistry (unused, for compatibility)
-   * @param reportingService (unused, for compatibility)
+   * @param templateRegistry 
+   * @param reportingService 
    * @param contentRoot Directory root (e.g., /Users/mpstaton/code/lossless-monorepo/content)
    */
   constructor(templateRegistry: TemplateRegistry, reportingService: ReportingService, contentRoot: string) {
     this.contentRoot = contentRoot;
     this.reportingService = reportingService;
+    this.templateRegistry = templateRegistry;
     // Use all directory configurations from USER_OPTIONS
     this.directoryConfigs = USER_OPTIONS.directories;
+    // === Instantiate IssueResolutionProcessor ===
+    this.issueResolutionProcessor = new IssueResolutionProcessor(this.templateRegistry, this.reportingService);
     // Register shutdown hooks bound to this instance
     const boundShutdown = this.handleShutdown.bind(this);
     process.on('SIGINT', boundShutdown);
@@ -158,14 +170,57 @@ export class FileSystemObserver {
     this.markFileAsProcessed(filePath);
     try {
       // Read file content
-      const fileContent = fs.readFileSync(filePath, 'utf-8');
+      const fileContent = await fs.promises.readFile(filePath, 'utf-8');
       // Extract frontmatter (single source of truth)
       const originalFrontmatter = extractFrontmatter(fileContent);
+
+      // === Delegate to IssueResolutionProcessor if applicable ===
+      if (dirConfig.template === 'issue-resolution' && this.issueResolutionProcessor) {
+        const result = await this.issueResolutionProcessor.processFile(filePath, originalFrontmatter, fileContent, dirConfig);
+        
+        if (result && result.needsWrite) {
+          if (result.updatedFileContent) {
+            await fs.promises.writeFile(filePath, result.updatedFileContent, 'utf8');
+            console.log(`[Observer] File updated by IssueResolutionProcessor: ${filePath}`);
+          } else if (result.updatedFrontmatter) {
+            // Fallback if only frontmatter object is returned (should ideally be updatedFileContent)
+            const { updateFrontmatter } = require('./utils/yamlFrontmatter'); // Ensure this utility is available
+            const newContent = updateFrontmatter(fileContent, result.updatedFrontmatter);
+            await fs.promises.writeFile(filePath, newContent, 'utf8');
+            console.log(`[Observer] File updated (frontmatter only) by IssueResolutionProcessor: ${filePath}`);
+          }
+          // Reporting should ideally be handled within the processor or based on more specific results
+          this.reportingService.logValidation(filePath, { 
+            valid: true, 
+            errors: [], 
+            warnings: [] 
+          });
+          return; // Processing handled by IssueResolutionProcessor
+        } else if (result && !result.needsWrite) {
+          console.log(`[Observer] IssueResolutionProcessor reviewed, no changes needed: ${filePath}`);
+          // Optionally log to reporting service that it was checked - using logValidation for consistency
+          this.reportingService.logValidation(filePath, { 
+            valid: true, // Assuming check implies no validation errors found by processor
+            errors: [], 
+            warnings: [{field: '_file', message: 'Checked by IssueResolutionProcessor, no changes.'}] // Example warning
+          });
+          return; // Processing (check) handled
+        }
+      }
+
+      // If not handled by IssueResolutionProcessor, or if it returned null (error/not applicable),
+      // proceed with generic observer logic. 
+      // The original code had a return if !originalFrontmatter, so we might want to reinstate that
+      // if specific processors are not expected to handle frontmatter creation from scratch.
       if (!originalFrontmatter) {
-        // No valid frontmatter found - this is a primary use case!
-        // For the main observer, we'll log this but let the specialized watchers handle it
-        // This is because the main observer doesn't know which template to apply
-        console.log(`[Observer] No frontmatter found in ${filePath} - specialized watchers will handle this file`);
+        console.log(`[Observer] No frontmatter found in ${filePath} and not handled by a specific processor.`);
+        // Potentially report this as an issue or log for files that *should* have frontmatter
+        // Corrected ReportingService call (formerly logError)
+        this.reportingService.logValidation(filePath, { 
+          valid: false, 
+          errors: [{ field: 'frontmatter', message: 'No frontmatter found and no specific processor handled creation.', value: null }], 
+          warnings: [] 
+        });
         return;
       }
 
@@ -297,9 +352,8 @@ export class FileSystemObserver {
 
       // --- 3. Final merge, update date_modified, write if any changes ---
       if (Object.keys(propertyCollector.results).length > 0) {
-        // Update date_modified first
-        const dateNow = new Date().toISOString();
-        propertyCollector.results.date_modified = dateNow;
+        // Update date_modified first, ensuring YYYY-MM-DD format via formatDate
+        propertyCollector.results.date_modified = formatDate(new Date());
         // Merge: overlay the collector on the original frontmatter (never write only the collector)
         const updatedFrontmatter = { ...originalFrontmatter, ...propertyCollector.results };
         await writeFrontmatterToFile(filePath, updatedFrontmatter);
@@ -516,6 +570,56 @@ export class FileSystemObserver {
   }
 
   /**
+   * Set up and start the ToolingWatcher alongside the main observer.
+   * This ensures that files in the tooling directory are properly processed
+   * according to the tooling template configuration.
+   */
+  public startToolingWatcher(): void {
+    if (this.toolingWatcher) {
+      console.log('[Observer] ToolingWatcher is already running.');
+      return;
+    }
+
+    // Find the specific configuration for the 'tooling/Enterprise Jobs-to-be-Done' path
+    // This path is hardcoded for now as per the user's request for a specific watcher path.
+    const specificToolingPathIdentifier = 'tooling/Enterprise Jobs-to-be-Done';
+    const toolingDirConfig = USER_OPTIONS.directories.find(
+      (dir) => dir.path === specificToolingPathIdentifier
+    );
+
+    if (!toolingDirConfig) {
+      console.warn(`[Observer] No configuration found in USER_OPTIONS.directories for path: '${specificToolingPathIdentifier}'. ToolingWatcher will not be started for this specific path.`);
+      // Optionally, you could decide to start it on the generic 'content/tooling' or not start it at all.
+      // For this specific request, if the exact path config isn't found, we won't start the watcher.
+      return; 
+    }
+
+    // Construct the absolute path for the ToolingWatcher
+    const absoluteToolingWatchPath = path.join(this.contentRoot, toolingDirConfig.path);
+
+    console.log(`[Observer] Initializing ToolingWatcher for specific path: ${absoluteToolingWatchPath}...`);
+    this.toolingWatcher = new ToolingWatcher(
+      absoluteToolingWatchPath, 
+      this.reportingService,
+      this.templateRegistry
+    );
+    this.toolingWatcher.start();
+    
+    console.log('[Observer] ToolingWatcher started successfully for specific path.');
+  }
+
+  /**
+   * Stop the ToolingWatcher if running.
+   */
+  public stopToolingWatcher(): void {
+    if (this.toolingWatcher) {
+      this.toolingWatcher.stop();
+      this.toolingWatcher = null;
+      console.log('[Observer] ToolingWatcher stopped.');
+    }
+  }
+
+  /**
    * Idempotent shutdown handler: writes final report on shutdown signal.
    */
   private async handleShutdown() {
@@ -560,6 +664,10 @@ export class FileSystemObserver {
       
       if (this.essaysWatcher) {
         this.stopEssaysWatcher();
+      }
+      
+      if (this.toolingWatcher) {
+        this.stopToolingWatcher();
       }
       
       console.log('[Observer] Shutdown signal received. Writing final report...');
