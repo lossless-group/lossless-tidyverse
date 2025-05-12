@@ -1,43 +1,88 @@
 // =============================================================================
 // Inspector-Only Issue Resolution Template for Markdown Frontmatter
 //
-// This template defines the canonical frontmatter structure for issue-resolution files.
-// It enforces the INSPECTOR-ONLY pattern as per project rules:
-//   - If a required property does not exist, assert and write with '' (empty string).
-//   - If property exists but is '', report as 'empty' but do not treat as error or fix.
-//   - If property is malformed, report as 'malformed' but do not enforce or fix.
-//   - All inspection results are for reporting only—never for enforcement or hard validation.
-//   - All logic here must be idempotent and non-destructive.
-//
-// This template is used by Watchers/Observers to assess if frontmatter is complete and valid.
+// This template defines the canonical frontmatter structure for issue resolution documents.
+// It follows INSPECTOR-ONLY patterns: reports issues, does not enforce/fix.
+// Used by Watchers/Observers for assessing frontmatter completeness and validity.
 // =============================================================================
 
 import { MetadataTemplate } from '../types/template';
-import { generateUUID, getFileCreationDate, getCurrentDate } from '../utils/commonUtils';
+import { 
+  generateUUID, 
+  getFileCreationDate, 
+  getCurrentDate, 
+  formatDate 
+} from '../utils/commonUtils';
 
 // Types for inspector statuses
 // Only these literal values are allowed for status
-// This matches the TemplateField type in the project
-//
 type InspectorStatus = "missing" | "malformed" | "empty" | "ok";
 
-// Inspector helpers (copied from reminders template)
-function requiredStringInspector(fieldName: string) {
+// LOCAL HELPER FUNCTIONS
+// ======================
+
+// Utility function to take a filename, remove the .md extension, and replace dashes with spaces.
+// Copied from essays.ts - TODO: Move to a common utility
+function filenameToTitle(filePath: string, frontmatter?: Record<string, any>): string {
+  const path = require('path'); // Node.js path module
+  const filename = path.basename(filePath);
+  let name = filename.endsWith('.md') ? filename.slice(0, -3) : filename;
+  name = name.replace(/-/g, ' '); // Replace all dashes with spaces
+  // Capitalize the first letter of each word
+  name = name.split(' ')
+    .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+  return name;
+}
+
+// Inspector for required string fields.
+// Handles 'optionalButNotEmpty' logic: if true, field can be absent, but if present, must not be empty.
+// Copied and adapted from tooling.ts/essays.ts - TODO: Move to a common utility
+function requiredStringInspector(fieldName: string, optionalButNotEmpty: boolean = false) {
   return (value: any): { status: InspectorStatus; message: string } => {
-    if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
-    if (typeof value !== 'string') return { status: "malformed", message: `${fieldName} is not a string` };
-    if (value.trim() === '') return { status: "empty", message: `${fieldName} is present but empty` };
-    return { status: "ok", message: `${fieldName} is present` };
+    if (typeof value === 'undefined') {
+      // If field is optional and missing, it's 'ok'. Otherwise, it's 'missing'.
+      return optionalButNotEmpty 
+        ? { status: "ok", message: `${fieldName} is optional and not provided` } 
+        : { status: "missing", message: `${fieldName} is missing` };
+    }
+    if (typeof value !== 'string') {
+      return { status: "malformed", message: `${fieldName} is not a string` };
+    }
+    if (value.trim() === '') {
+      // An empty string is problematic whether the field was strictly required or optionalButNotEmpty.
+      return { status: "empty", message: `${fieldName} is present but empty` };
+    }
+    return { status: "ok", message: `${fieldName} is present and valid` };
   };
 }
-function requiredArrayInspector(fieldName: string) {
+
+// Inspector for required array fields.
+// Handles 'optionalButNotEmpty' logic similar to string inspector.
+// Copied from essays.ts - TODO: Move to a common utility
+function requiredArrayInspector(fieldName: string, optionalButNotEmpty: boolean = false) {
   return (value: any): { status: InspectorStatus; message: string } => {
-    if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
-    if (!Array.isArray(value)) return { status: "malformed", message: `${fieldName} is not an array` };
-    if (value.length === 0) return { status: "empty", message: `${fieldName} array is empty` };
-    return { status: "ok", message: `${fieldName} is present` };
+    if (typeof value === 'undefined') {
+      return optionalButNotEmpty 
+        ? { status: "ok", message: `${fieldName} is optional and not provided` } 
+        : { status: "missing", message: `${fieldName} is missing` };
+    }
+    if (!Array.isArray(value)) {
+      return { status: "malformed", message: `${fieldName} is not an array` };
+    }
+    // For arrays, 'optionalButNotEmpty' usually means if the key exists, it should not be an empty array.
+    // However, an empty array can also be a valid state for optional fields.
+    // Sticking to a simpler check: if required (optionalButNotEmpty=false) and empty, it's an issue.
+    // If optional (optionalButNotEmpty=true), an empty array might be acceptable (depends on specific field needs).
+    // For now, mirroring essays.ts: empty array is 'empty' status if not strictly optional.
+    if (value.length === 0 && !optionalButNotEmpty) { 
+      return { status: "empty", message: `${fieldName} array is present but empty` };
+    }
+    return { status: "ok", message: `${fieldName} is present and valid` };
   };
 }
+
+// Inspector for date fields (YYYY-MM-DD format)
 function dateInspector(fieldName: string) {
   return (value: any): { status: InspectorStatus; message: string } => {
     if (typeof value === 'undefined') return { status: "missing", message: `${fieldName} is missing` };
@@ -48,38 +93,72 @@ function dateInspector(fieldName: string) {
   };
 }
 
-const issueResolutionTemplate: MetadataTemplate = {
+// Wrapper for date_created
+function addDateCreatedWrapper(filePath: string, frontmatter?: Record<string, any>): string | null {
+  if (frontmatter && frontmatter.date_created) {
+    return formatDate(frontmatter.date_created); // Ensure consistent format if already present
+  }
+  return getFileCreationDate(filePath);
+}
+
+// Wrapper for date_modified (using current date)
+function addTodaysDateInFormatWrapper(filePath: string, frontmatter?: Record<string, any>): string {
+  // frontmatter?.date_modified could be checked if we want to preserve an existing date_modified
+  // but typically date_modified should update to current on save if changed.
+  return getCurrentDate(); 
+}
+
+// Function to be used as defaultValueFn for site_uuid
+function addSiteUUIDWrapper(filePath: string, frontmatter?: Record<string, any>): string {
+  // We need to return a simple string UUID, not an object
+  
+  // First check if frontmatter already has a valid UUID
+  if (frontmatter && frontmatter.site_uuid && typeof frontmatter.site_uuid === 'string' && 
+      /^[0-9a-fA-F-]{36}$/.test(frontmatter.site_uuid)) {
+    return frontmatter.site_uuid;
+  }
+  
+  // If no valid UUID in frontmatter, generate a new one directly
+  return generateUUID(); // Directly use imported generateUUID
+}
+
+const _issueResolutionTemplate: MetadataTemplate = {
   id: 'issue-resolution',
   name: 'Issue Resolution Document',
-  description: 'Template for issue-resolution documentation (INSPECTOR-ONLY)',
+  description: 'Template for documents in the lost-in-public/issue-resolution directory. Specifies required and optional frontmatter fields.',
   appliesTo: {
-    directories: ['content/lost-in-public/issue-resolution/**/*'],
+    directories: ['lost-in-public/issue-resolution/**/*'], // Adjusted path if necessary
   },
   required: {
-    title: { type: 'string', description: 'Title', inspection: requiredStringInspector('title'), defaultValueFn: () => '' },
-    lede: { type: 'string', description: 'Brief description', inspection: requiredStringInspector('lede'), defaultValueFn: () => '' },
-    date_authored_initial_draft: { type: 'date', description: 'Date of initial draft', inspection: dateInspector('date_authored_initial_draft'), defaultValueFn: () => '' },
-    date_authored_current_draft: { type: 'date', description: 'Date of current draft', inspection: dateInspector('date_authored_current_draft'), defaultValueFn: () => '' },
-    at_semantic_version: { type: 'string', description: 'Semantic version', inspection: requiredStringInspector('at_semantic_version'), defaultValueFn: () => '' },
-    status: { type: 'string', description: 'Status', inspection: requiredStringInspector('status'), defaultValueFn: () => '' },
-    augmented_with: { type: 'string', description: 'AI model used', inspection: requiredStringInspector('augmented_with'), defaultValueFn: () => '' },
-    category: { type: 'string', description: 'Category', inspection: requiredStringInspector('category'), defaultValueFn: () => '' },
-    tags: { type: 'array', description: 'Tags', inspection: requiredArrayInspector('tags'), defaultValueFn: () => [] },
-    date_created: { type: 'date', description: 'Creation date', inspection: dateInspector('date_created'), defaultValueFn: () => '' },
-    date_modified: { type: 'date', description: 'Last modification date', inspection: dateInspector('date_modified'), defaultValueFn: () => '' },
-    site_uuid: { type: 'string', description: 'Unique identifier', inspection: requiredStringInspector('site_uuid'), defaultValueFn: () => '' },
-    authors: { type: 'array', description: 'Authors', inspection: requiredArrayInspector('authors'), defaultValueFn: () => [] },
-    portrait_image: { type: 'string', description: 'Portrait image URL', inspection: requiredStringInspector('portrait_image'), defaultValueFn: () => '' },
-    image_prompt: { type: 'string', description: 'Image prompt for generative tools', inspection: requiredStringInspector('image_prompt'), defaultValueFn: () => '' },
-    banner_image: { type: 'string', description: 'Banner image URL', inspection: requiredStringInspector('banner_image'), defaultValueFn: () => '' },
+    title: { type: 'string', description: 'Title of the issue', inspection: requiredStringInspector('title'), defaultValueFn: filenameToTitle },
+    status: { type: 'string', description: 'Current status of the issue (e.g., Open, In Progress, Resolved, Closed)', inspection: requiredStringInspector('status'), defaultValueFn: () => 'Open' },
+    affected_systems: { type: 'string', description: 'Systems or components affected by the issue', inspection: requiredStringInspector('affected_systems'), defaultValueFn: () => '' },
+    category: { type: 'string', description: 'Category of the issue (e.g., Bug, Feature Request, Documentation)', inspection: requiredStringInspector('category'), defaultValueFn: () => 'Bug' },
+    lede: { type: 'string', description: 'Brief, enticing description why the issue is important', inspection: requiredStringInspector('lede'), defaultValueFn: () => '' },
+    date_reported: { type: 'date', description: 'Date the issue was reported', inspection: dateInspector('date_reported'), defaultValueFn: () => null },
+    date_resolved: { type: 'date', description: 'Date the issue was resolved', inspection: dateInspector('date_resolved'), defaultValueFn: () => null },
+    date_last_updated: { type: 'date', description: 'Date the issue was last updated', inspection: dateInspector('date_last_updated'), defaultValueFn: () => null },
+    at_semantic_version: { type: 'string', description: 'Semantic version at time of issue using 4 segments (epic.major.minor.patch)', inspection: requiredStringInspector('at_semantic_version'), defaultValueFn: () => '0.0.0.0' },
+    date_created: { type: 'date', description: 'Date the issue was logged', inspection: dateInspector('date_created'), defaultValueFn: addDateCreatedWrapper },
+    date_modified: { type: 'date', description: 'Date the issue was last modified', inspection: dateInspector('date_modified'), defaultValueFn: addTodaysDateInFormatWrapper },
+    site_uuid: { type: 'string', description: 'Unique identifier for the site', inspection: requiredStringInspector('site_uuid'), defaultValueFn: addSiteUUIDWrapper },
+    augmented_with: { type: 'string', description: 'AI model used for assistance', inspection: requiredStringInspector('augmented_with', true), defaultValueFn: () => '' }, 
+    tags: { type: 'array', description: 'Relevant tags', inspection: requiredArrayInspector('tags'), defaultValueFn: () => ['type/issue-resolution'] },
+    portrait_image: { type: 'string', description: 'Relevant image if any (e.g. screenshot)', inspection: requiredStringInspector('portrait_image', true), defaultValueFn: () => '' },
+    image_prompt: { type: 'string', description: 'Prompt for image if generative', inspection: requiredStringInspector('image_prompt', true), defaultValueFn: () => '' },
+    banner_image: { type: 'string', description: 'Banner image if any', inspection: requiredStringInspector('banner_image', true), defaultValueFn: () => '' },
   },
   optional: {
-    date_authored_final_draft: { type: 'date', description: 'Date of final draft', inspection: dateInspector('date_authored_final_draft') },
-    date_first_published: { type: 'date', description: 'Date of first publication', inspection: dateInspector('date_first_published') },
-    date_last_updated: { type: 'date', description: 'Date of last update', inspection: dateInspector('date_last_updated') },
-    date_first_run: { type: 'date', description: 'Date first run', inspection: dateInspector('date_first_run') },
-    publish: { type: 'boolean', description: 'Publish flag' },
+    priority: { type: 'string', description: 'Priority of the issue (e.g., Low, Medium, High, Critical)', inspection: requiredStringInspector('priority'), defaultValueFn: () => 'Medium' },
+    author_issuer: { type: 'string', description: 'Person or system that reported the issue', inspection: requiredStringInspector('reporter'), defaultValueFn: () => '' }, // Could default to a username or system ID
+    author_resolver: { type: 'string', description: 'Person or team assigned to the issue', inspection: requiredStringInspector('assignee', true), defaultValueFn: () => '' }, // Optional, but if present, not empty
+    resolved_at: { type: 'date', description: 'Date the issue was resolved', inspection: dateInspector('resolved_at'), defaultValue: null },
+    authors: { type: 'array', description: 'People involved in reporting/resolving', inspection: requiredArrayInspector('authors', true), defaultValueFn: () => [] }, // e.g. ['Reporter Name', 'Assignee Name']
+    resolution_summary: { type: 'string', description: 'Summary of the resolution', inspection: requiredStringInspector('resolution_summary', true), defaultValue: '' }, // Optional, but if present, not empty
+    severity: { type: 'string', description: 'Severity of the issue (e.g., Minor, Major, Critical)', inspection: requiredStringInspector('severity', true), defaultValueFn: () => '' },
+    publish: { type: 'boolean', description: 'Should this issue be published?', inspection: requiredStringInspector('publish'), defaultValueFn: () => true },
   }
-};
+}; 
 
-export default issueResolutionTemplate;
+// Export the modified template directly
+export const issueResolutionTemplate = _issueResolutionTemplate;

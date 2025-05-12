@@ -11,6 +11,7 @@
 import { formatDate } from './commonUtils';
 import fs from 'fs/promises';
 import { ReportingService } from '../services/reportingService';
+import { MetadataTemplate, TemplateField } from '../types/template';
 
 /**
  * =============================================================
@@ -358,6 +359,51 @@ export function reportPotentialFrontmatterInconsistencies(
 }
 
 /**
+ * Applies a template to an existing frontmatter object, adding default values for missing fields.
+ *
+ * @param currentFrontmatter - The current frontmatter object (can be empty).
+ * @param template - The MetadataTemplate to apply.
+ * @param autoAddMissingFields - Boolean flag to control automatic addition of missing fields with default values.
+ * @param filePath - The path to the file, used by defaultValueFn.
+ * @returns An object containing the potentially modified frontmatter and a boolean indicating if changes were made.
+ */
+export function applyTemplateToFrontmatter(
+  currentFrontmatter: Record<string, any>,
+  template: MetadataTemplate,
+  autoAddMissingFields: boolean,
+  filePath: string // For defaultValueFn
+): { frontmatter: Record<string, any>; modified: boolean } {
+  let modified = false;
+  const newFrontmatter = { ...currentFrontmatter };
+
+  const processFields = (fieldSet: { [key: string]: TemplateField }) => {
+    for (const key in fieldSet) {
+      if (Object.prototype.hasOwnProperty.call(fieldSet, key)) {
+        const templateField = fieldSet[key];
+        if (!Object.prototype.hasOwnProperty.call(newFrontmatter, key)) {
+          if (autoAddMissingFields) {
+            if (templateField.defaultValueFn) {
+              newFrontmatter[key] = templateField.defaultValueFn(filePath, newFrontmatter);
+              modified = true;
+            } else if (templateField.defaultValue !== undefined) {
+              newFrontmatter[key] = templateField.defaultValue;
+              modified = true;
+            }
+          }
+        }
+        // Here, you could add validation logic for existing fields if needed in the future
+        // For example, checking type or running templateField.validation if present
+      }
+    }
+  };
+
+  processFields(template.required);
+  processFields(template.optional);
+
+  return { frontmatter: newFrontmatter, modified };
+}
+
+/**
  * Updates the frontmatter in a Markdown file's content string.
  * If a templateOrder is provided, reorders the YAML keys to match the template.
  *
@@ -367,23 +413,31 @@ export function reportPotentialFrontmatterInconsistencies(
  * @returns The Markdown file content with updated (and possibly reordered) frontmatter
  */
 export function updateFrontmatter(content: string, updatedFrontmatter: Record<string, any>, templateOrder?: string[]): string {
+  const frontmatterYaml = formatFrontmatter(updatedFrontmatter, templateOrder);
+  
+  // Check if content has frontmatter (starts with ---)
+  if (!content.startsWith('---')) {
+    // If content is empty or doesn't have a frontmatter block, create new content with just the frontmatter.
+    // Ensure a newline after the closing '---' for proper formatting.
+    return `---
+${frontmatterYaml}---
+`; // Changed to construct new frontmatter content. Added a trailing newline.
+  }
+  
   // Find the end of the original frontmatter
   const endIndex = content.indexOf('---', 3);
   if (endIndex === -1) {
     return content;
   }
-
-  // Format the frontmatter, using templateOrder if provided
-  const formattedFrontmatter = formatFrontmatter(updatedFrontmatter, templateOrder);
-
+  
   // Extract the body content after the frontmatter
   let bodyContent = content.substring(endIndex + 3);
-
+  
   // Remove leading whitespace from body content
   bodyContent = bodyContent.replace(/^\s+/, '');
-
+  
   // Create new content with proper frontmatter and exactly two newlines after it
-  return `---\n${formattedFrontmatter}---\n\n${bodyContent}`;
+  return `---\n${frontmatterYaml}---\n\n${bodyContent}`;
 }
 
 // === Utility: Remove internal/process-only keys from frontmatter before writing ===
