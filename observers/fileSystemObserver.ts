@@ -30,6 +30,8 @@ import { EssaysWatcher } from './watchers/essaysWatcher';
 import { ToolingWatcher } from './watchers/toolkitWatcher';
 // --- Import IssueResolutionProcessor for issue-resolution collection ---
 import { IssueResolutionProcessor } from './watchers/issueResolutionWatcher';
+// --- Import ImageKitService for screenshot processing ---
+import { ImageKitService } from './services/imageKitService';
 // --- Import the centralized processed files tracker ---
 import { 
   initializeProcessedFilesTracker, 
@@ -57,8 +59,9 @@ export class FileSystemObserver {
   private essaysWatcher: EssaysWatcher | null = null;
   private toolingWatcher: ToolingWatcher | null = null;
   private shutdownInitiated: boolean = false;
-  // === Add IssueResolutionProcessor instance ===
+  // === Add Service Instances ===
   private issueResolutionProcessor: IssueResolutionProcessor | null = null;
+  private imageKitService: ImageKitService | null = null;
 
   /**
    * Reset the processed files set
@@ -99,8 +102,19 @@ export class FileSystemObserver {
     this.templateRegistry = templateRegistry;
     // Use all directory configurations from USER_OPTIONS
     this.directoryConfigs = USER_OPTIONS.directories;
-    // === Instantiate IssueResolutionProcessor ===
+    // === Instantiate Services ===
     this.issueResolutionProcessor = new IssueResolutionProcessor(this.templateRegistry, this.reportingService);
+    
+    // Initialize ImageKitService if any directory has it enabled
+    if (this.directoryConfigs.some(config => config.services.imageKit?.enabled)) {
+      // Find the first config with ImageKit enabled to initialize the service
+      const imageKitConfig = this.directoryConfigs.find(config => config.services.imageKit?.enabled)?.services.imageKit;
+      if (imageKitConfig) {
+        this.imageKitService = new ImageKitService(imageKitConfig);
+        console.log('[Observer] ImageKitService initialized');
+      }
+    }
+    
     // Register shutdown hooks bound to this instance
     const boundShutdown = this.handleShutdown.bind(this);
     process.on('SIGINT', boundShutdown);
@@ -265,6 +279,26 @@ export class FileSystemObserver {
           console.log(`[Observer] [OpenGraph] OpenGraph is disabled for ${filePath} (directory config: openGraph: false)`);
         }
       }
+      
+      // (c) ImageKit Screenshots - ONLY evaluate if enabled in directory config
+      if (dirConfig.services.imageKit?.enabled && this.imageKitService) {
+        // Check if we need to process screenshots for this file
+        const imageUrl = originalFrontmatter.open_graph_url || originalFrontmatter.url;
+        if (imageUrl && (!originalFrontmatter.og_screenshot_url || dirConfig.services.imageKit.overwriteScreenshotUrl)) {
+          // Process screenshots asynchronously
+          this.imageKitService.processScreenshots(filePath, originalFrontmatter)
+            .then(result => {
+              if (result) {
+                console.log(`[Observer] [ImageKit] Successfully processed screenshot for ${filePath}`);
+              } else {
+                console.log(`[Observer] [ImageKit] Screenshot processing skipped for ${filePath}`);
+              }
+            })
+            .catch(error => {
+              console.error(`[Observer] [ImageKit] Error processing screenshot for ${filePath}:`, error);
+            });
+        }
+      }
 
       // --- 2. Execute all subsystems that need to act, collect results ---
       // (a) Site UUID (sync)
@@ -279,6 +313,22 @@ export class FileSystemObserver {
           }
         }
         propertyCollector.expectations.expectSiteUUID = false;
+      }
+      
+      // (b) Process screenshots if enabled in directory config
+      if (dirConfig.services.imageKit?.enabled && this.imageKitService) {
+        try {
+          const imageUrl = originalFrontmatter.open_graph_url || originalFrontmatter.url;
+          if (imageUrl && (!originalFrontmatter.og_screenshot_url || dirConfig.services.imageKit.overwriteScreenshotUrl)) {
+            // Process screenshots synchronously as part of the operation sequence
+            await this.imageKitService.processScreenshots(filePath, originalFrontmatter);
+            if (dirConfig.services.logging?.imageKit) {
+              console.log(`[Observer] [ImageKit] Successfully processed screenshot for ${filePath}`);
+            }
+          }
+        } catch (error) {
+          console.error(`[Observer] [ImageKit] Error processing screenshot for ${filePath}:`, error);
+        }
       }
       // (b) OpenGraph (async) - ONLY process if enabled in directory config
       if (propertyCollector.expectations.expectOpenGraph && dirConfig.services.openGraph === true) {
@@ -699,17 +749,33 @@ export class FileSystemObserver {
         this.reportingService.logShutdownDiagnostic(`Error during shutdown: ${errorMessage}`);
       }
     } finally {
-      
-      // CRITICAL: Explicitly shut down the processed files tracker before exiting
-      // This ensures that when the process is restarted, it starts with a clean slate
-      console.log('[Observer] Shutting down processed files tracker');
-      shutdownProcessedFilesTracker();
-      
-      console.log('[Observer] Exiting in 250ms...');
-      setTimeout(() => {
-        console.log('[Observer] Process exit now.');
-        process.exit(0);
-      }, 250);
+      try {
+        // Clean up ImageKitService if it was initialized
+        if (this.imageKitService) {
+          try {
+            console.log('[Observer] Shutting down ImageKitService...');
+            await this.imageKitService.shutdown();
+            console.log('[Observer] ImageKitService shutdown complete');
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error('[Observer] Error during ImageKitService shutdown:', errorMessage);
+            if (this.reportingService) {
+              this.reportingService.logShutdownDiagnostic(`Error during ImageKitService shutdown: ${errorMessage}`);
+            }
+          }
+        }
+      } finally {
+        // CRITICAL: Explicitly shut down the processed files tracker before exiting
+        // This ensures that when the process is restarted, it starts with a clean slate
+        console.log('[Observer] Shutting down processed files tracker');
+        await shutdownProcessedFilesTracker();
+        
+        console.log('[Observer] Exiting in 250ms...');
+        setTimeout(() => {
+          console.log('[Observer] Process exit now.');
+          process.exit(0);
+        }, 250);
+      }
     }
   }
 }

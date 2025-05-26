@@ -12,18 +12,33 @@ export interface OperationStep {
   delayMs?: number;
 }
 
-export interface DirectoryConfig {
+export interface ImageKitConfig {
+  enabled: boolean;
+  overwriteScreenshotUrl: boolean;
+  batchSize?: number;
+  retryAttempts?: number;
+  retryDelayMs?: number;
+  logging?: boolean | {
+    debug?: boolean;
+    info?: boolean;
+    error?: boolean;
+  };
+}
+
+interface DirectoryConfig {
   path: string; // Relative to content root
   template: string; // Template ID
   services: {
     openGraph: boolean;
     citations: boolean;
+    imageKit?: ImageKitConfig; // Configuration for ImageKit screenshot processing
     reorderYamlToTemplate?: boolean; // If true, output YAML will be reordered to match template property order
     addSiteUUID?: boolean; // Controls addSiteUUID handler ON/OFF
     logging?: {
       extractedFrontmatter?: boolean;
       addSiteUUID?: boolean;
       openGraph?: boolean;
+      imageKit?: boolean;
     };
   };
   operationSequence?: OperationStep[];
@@ -68,16 +83,25 @@ export const USER_OPTIONS: UserOptions = {
       services: {
         openGraph: true,
         citations: false,
+        imageKit: {
+          enabled: true,
+          overwriteScreenshotUrl: true,
+          batchSize: 5,
+          retryAttempts: 3,
+          retryDelayMs: 1000
+        },
         reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
         logging: {
           extractedFrontmatter: true,
           addSiteUUID: true,
-          openGraph: true
+          openGraph: true,
+          imageKit: true
         }
       },
       operationSequence: [
         { op: 'addSiteUUID', delayMs: 25 },
         { op: 'fetchOpenGraph', delayMs: 25 },
+        { op: 'processScreenshots', delayMs: 25 },
         { op: 'validateFrontmatter', delayMs: 25 }
       ]
     },
