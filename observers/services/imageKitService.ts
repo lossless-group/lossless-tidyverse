@@ -2,157 +2,118 @@ import ImageKit from 'imagekit';
 import fetch from 'node-fetch';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { v4 as uuidv4 } from 'uuid';
 
-// Types for the expectation pattern
-export interface ImageKitExpectation {
-  id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  url: string;
-  filePath: string;
-  result?: {
-    imageKitUrl: string;
-  };
-  error?: string;
-}
+// Track in-progress uploads to prevent duplicates
+const screenshotUploadInProgress = new Set<string>();
 
-export class ImageKitService {
-  private imagekit: ImageKit;
-  private expectations: Map<string, ImageKitExpectation> = new Map();
-  private tempDir: string;
-
-  constructor() {
-    if (!process.env.IMAGEKIT_PUBLIC_KEY || !process.env.IMAGEKIT_PRIVATE_KEY || !process.env.IMAGEKIT_URL_ENDPOINT) {
-      throw new Error('ImageKit configuration is missing required environment variables');
+/**
+ * Uploads a screenshot to ImageKit and returns the permanent URL
+ * @param imageUrl The URL of the image to upload
+ * @returns The ImageKit URL or null if upload fails
+ */
+async function uploadScreenshotToImageKit(imageUrl: string): Promise<string | null> {
+  try {
+    // Download the image
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download image: ${response.statusText}`);
     }
 
-    this.imagekit = new ImageKit({
-      publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
-      privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-      urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
+    const buffer = await response.buffer();
+    
+    // Initialize ImageKit
+    const imagekit = new ImageKit({
+      publicKey: process.env.IMAGEKIT_PUBLIC_KEY!,
+      privateKey: process.env.IMAGEKIT_PRIVATE_KEY!,
+      urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT!,
     });
 
-    this.tempDir = path.join(process.cwd(), '.temp', 'screenshots');
-    fs.mkdir(this.tempDir, { recursive: true }).catch(console.error);
+    // Upload to ImageKit
+    const uploadResponse = await imagekit.upload({
+      file: buffer,
+      fileName: `screenshot-${Date.now()}.jpg`,
+      folder: '/screenshots',
+      useUniqueFileName: true,
+      overwriteFile: false,
+    });
+
+    return uploadResponse.url;
+  } catch (error) {
+    console.error('Error uploading to ImageKit:', error);
+    return null;
+  }
+}
+
+/**
+ * Uploads a screenshot to ImageKit in the background and updates the file when done
+ * @param imageUrl The URL of the image to upload
+ * @param filePath The path to the file to update
+ */
+export function uploadScreenshotInBackground(imageUrl: string, filePath: string): void {
+  // Skip if we're already processing this URL
+  if (screenshotUploadInProgress.has(imageUrl)) {
+    console.log(`Screenshot upload already in progress for ${imageUrl}, skipping duplicate request`);
+    return;
   }
 
-  /**
-   * Create an expectation for uploading a screenshot to ImageKit
-   * @param imageUrl The URL of the image to upload
-   * @param filePath The path of the file this screenshot is for
-   * @returns An expectation object that will be fulfilled asynchronously
-   */
-  createScreenshotUploadExpectation(imageUrl: string, filePath: string): ImageKitExpectation {
-    const expectation: ImageKitExpectation = {
-      id: uuidv4(),
-      status: 'pending',
-      url: imageUrl,
-      filePath,
-    };
+  // Add to tracking set
+  screenshotUploadInProgress.add(imageUrl);
+  
+  console.log(`Starting background screenshot upload for ${imageUrl} (${filePath})`);
 
-    this.expectations.set(expectation.id, expectation);
-    
-    // Start processing in the background
-    this.processScreenshotUpload(expectation.id).catch(console.error);
-    
-    return expectation;
-  }
-
-  /**
-   * Process a screenshot upload in the background
-   */
-  private async processScreenshotUpload(expectationId: string): Promise<void> {
-    const expectation = this.expectations.get(expectationId);
-    if (!expectation) return;
-
+  // Process in background
+  (async () => {
     try {
-      expectation.status = 'processing';
+      const imageKitUrl = await uploadScreenshotToImageKit(imageUrl);
       
-      // 1. Download the image
-      const response = await fetch(expectation.url);
-      if (!response.ok) {
-        throw new Error(`Failed to download image: ${response.statusText}`);
+      if (imageKitUrl) {
+        console.log(`✅ Successfully uploaded screenshot to ImageKit: ${imageKitUrl}`);
+        await updateFileWithImageKitUrl(filePath, imageKitUrl);
+      } else {
+        console.log(`⚠️ Failed to upload screenshot for ${imageUrl}`);
       }
-
-      const buffer = await response.buffer();
-      const tempFilePath = path.join(this.tempDir, `${expectationId}.jpg`);
-      await fs.writeFile(tempFilePath, buffer);
-
-      try {
-        // 2. Upload to ImageKit
-        const uploadResponse = await this.imagekit.upload({
-          file: buffer,
-          fileName: `screenshot-${Date.now()}.jpg`,
-          folder: '/screenshots',
-          useUniqueFileName: true,
-          overwriteFile: false,
-        });
-
-        // 3. Update expectation with result
-        expectation.status = 'completed';
-        expectation.result = {
-          imageKitUrl: uploadResponse.url,
-        };
-
-      } finally {
-        // Clean up temp file
-        try {
-          await fs.unlink(tempFilePath);
-        } catch (error) {
-          console.error('Error cleaning up temp file:', error);
-        }
-      }
-
     } catch (error) {
-      expectation.status = 'failed';
-      expectation.error = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`Error in background screenshot upload for ${imageUrl}:`, error);
+    } finally {
+      // Clean up
+      screenshotUploadInProgress.delete(imageUrl);
     }
-  }
-
-  /**
-   * Get the current status of an expectation
-   */
-  getExpectation(expectationId: string): ImageKitExpectation | undefined {
-    return this.expectations.get(expectationId);
-  }
-
-  /**
-   * Wait for an expectation to be fulfilled
-   */
-  async waitForExpectation(expectationId: string, timeoutMs = 30000): Promise<ImageKitExpectation> {
-    const startTime = Date.now();
-    const checkInterval = 100; // ms
-    
-    return new Promise((resolve, reject) => {
-      const check = () => {
-        const expectation = this.expectations.get(expectationId);
-        
-        if (!expectation) {
-          return reject(new Error('Expectation not found'));
-        }
-
-        if (expectation.status === 'completed' || expectation.status === 'failed') {
-          return resolve(expectation);
-        }
-
-        if (Date.now() - startTime > timeoutMs) {
-          return reject(new Error('Timeout waiting for expectation'));
-        }
-
-        setTimeout(check, checkInterval);
-      };
-
-      check();
-    });
-  }
+  })();
 }
 
-// Singleton instance
-let instance: ImageKitService | null = null;
+/**
+ * Updates a file with the ImageKit URL in its frontmatter
+ * @param filePath Path to the file to update
+ * @param imageKitUrl The ImageKit URL to set
+ */
+async function updateFileWithImageKitUrl(filePath: string, imageKitUrl: string): Promise<void> {
+  try {
+    const content = await fs.readFile(filePath, 'utf8');
+    const frontmatterEnd = content.indexOf('---', 3);
+    
+    if (frontmatterEnd === -1) {
+      throw new Error('No frontmatter found in file');
+    }
 
-export function getImageKitService(): ImageKitService {
-  if (!instance) {
-    instance = new ImageKitService();
+    const frontmatter = content.slice(0, frontmatterEnd);
+    const restOfContent = content.slice(frontmatterEnd);
+    
+    // Add or update the og_screenshot_url
+    let updatedFrontmatter: string;
+    if (frontmatter.includes('og_screenshot_url:')) {
+      updatedFrontmatter = frontmatter.replace(
+        /og_screenshot_url:.*$/m,
+        `og_screenshot_url: ${imageKitUrl}`
+      );
+    } else {
+      updatedFrontmatter = `${frontmatter.trimEnd()}\nog_screenshot_url: ${imageKitUrl}\n`;
+    }
+
+    // Write back to file
+    await fs.writeFile(filePath, updatedFrontmatter + restOfContent, 'utf8');
+    console.log(`✅ Updated ${filePath} with ImageKit URL`);
+  } catch (error) {
+    console.error(`Error updating file ${filePath}:`, error);
+    throw error;
   }
-  return instance;
 }
