@@ -142,10 +142,187 @@ export class FileSystemObserver {
   /**
    * Starts the observer: watches for .md file changes in all configured directories
    */
-  public startObserver() {
+  /**
+   * Process all existing Markdown files in a directory to update screenshots
+   * This is a specialized version of processExistingFiles that only handles screenshots
+   * @param dirPath Relative path from content root (e.g., 'tooling/Enterprise Jobs-to-be-Done')
+   */
+  public async processScreenshotsForExistingFiles(dirPath: string) {
+    const dirConfig = this.directoryConfigs.find(c => 
+      path.normalize(c.path) === path.normalize(dirPath)
+    );
+    
+    if (!dirConfig) {
+      console.error(`[Observer] No configuration found for directory: ${dirPath}`);
+      return;
+    }
+
+    // Skip if ImageKit is not enabled for this directory
+    if (!dirConfig.services.imageKit?.enabled || !this.imageKitService) {
+      console.log(`[Observer] [ImageKit] Screenshot processing is disabled for directory: ${dirPath}`);
+      return;
+    }
+
+    const fullPath = path.join(this.contentRoot, dirPath);
+    
+    try {
+      // Check if directory exists
+      await fs.promises.access(fullPath, fs.constants.R_OK);
+      
+      // Read all markdown files recursively
+      const files: string[] = [];
+      const readDir = async (dir: string) => {
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await readDir(fullPath);
+          } else if (entry.isFile() && entry.name.endsWith('.md')) {
+            files.push(fullPath);
+          }
+        }
+      };
+      
+      await readDir(fullPath);
+      
+      console.log(`[Observer] [ImageKit] Found ${files.length} Markdown files to process for screenshots in ${dirPath}`);
+      
+      // Process each file for screenshots only
+      for (const filePath of files) {
+        try {
+          // Read file content
+          const fileContent = await fs.promises.readFile(filePath, 'utf-8');
+          const frontmatter = extractFrontmatter(fileContent);
+          
+          if (!frontmatter) {
+            console.log(`[Observer] [ImageKit] No frontmatter found in ${filePath}, skipping`);
+            continue;
+          }
+          
+          // Only process if we have a URL and either don't have a screenshot or we're forcing overwrite
+          const imageUrl = frontmatter.open_graph_url || frontmatter.url;
+          if (!imageUrl) {
+            console.log(`[Observer] [ImageKit] No URL found in ${filePath}, skipping`);
+            continue;
+          }
+          
+          if (frontmatter.og_screenshot_url && dirConfig.services.imageKit.overwriteScreenshotUrl !== true) {
+            console.log(`[Observer] [ImageKit] Screenshot already exists for ${filePath} and overwrite is disabled, skipping`);
+            continue;
+          }
+          
+          // Process the screenshot - create a copy of frontmatter to prevent modifications
+          console.log(`[Observer] [ImageKit] Processing screenshot for ${filePath}`);
+          const frontmatterCopy = JSON.parse(JSON.stringify(frontmatter));
+          const imageKitUrl = await this.imageKitService.processScreenshots(filePath, frontmatterCopy);
+          
+          if (imageKitUrl) {
+            // Update the file with the new ImageKit URL
+            console.log(`[Observer] [ImageKit] Updating file with ImageKit URL: ${imageKitUrl}`);
+            
+            // Import the YAML frontmatter utilities
+            const { updateFrontmatter, writeFrontmatterToFile } = await import('./utils/yamlFrontmatter');
+            
+            try {
+              // Read the current file content
+              const content = await fs.promises.readFile(filePath, 'utf8');
+              
+              // Update the frontmatter with the new ImageKit URL
+              const updatedFrontmatter = {
+                ...frontmatter,
+                og_screenshot_url: imageKitUrl
+              };
+              
+              // Update the file content with the new frontmatter
+              const updatedContent = updateFrontmatter(content, updatedFrontmatter);
+              
+              // Write the updated content back to the file
+              await fs.promises.writeFile(filePath, updatedContent, 'utf8');
+              console.log(`[Observer] [ImageKit] Successfully updated ${filePath} with ImageKit URL`);
+              
+            } catch (error) {
+              console.error(`[Observer] [ImageKit] Error updating file ${filePath}:`, error);
+            }
+          }
+          
+        } catch (error) {
+          console.error(`[Observer] [ImageKit] Error processing screenshot for ${filePath}:`, error);
+        }
+      }
+      
+      console.log(`[Observer] [ImageKit] Finished processing screenshots for ${files.length} files in ${dirPath}`);
+      
+    } catch (error) {
+      console.error(`[Observer] [ImageKit] Error accessing directory ${dirPath}:`, error);
+    }
+  }
+
+  /**
+   * Process all existing Markdown files in a directory
+   * @param dirPath Relative path from content root (e.g., 'tooling/Enterprise Jobs-to-be-Done')
+   */
+  public async processExistingFiles(dirPath: string) {
+    const dirConfig = this.directoryConfigs.find(c => 
+      path.normalize(c.path) === path.normalize(dirPath)
+    );
+    
+    if (!dirConfig) {
+      console.error(`[Observer] No configuration found for directory: ${dirPath}`);
+      return;
+    }
+
+    const fullPath = path.join(this.contentRoot, dirPath);
+    
+    try {
+      // Check if directory exists
+      await fs.promises.access(fullPath, fs.constants.R_OK);
+      
+      // Read all markdown files recursively
+      const files: string[] = [];
+      const readDir = async (dir: string) => {
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await readDir(fullPath);
+          } else if (entry.isFile() && entry.name.endsWith('.md')) {
+            files.push(fullPath);
+          }
+        }
+      };
+      
+      await readDir(fullPath);
+      
+      console.log(`[Observer] Found ${files.length} Markdown files in ${dirPath}`);
+      
+      // Process each file
+      for (const filePath of files) {
+        try {
+          await this.onChange(filePath, dirConfig);
+        } catch (error) {
+          console.error(`[Observer] Error processing ${filePath}:`, error);
+        }
+      }
+      
+      console.log(`[Observer] Finished processing ${files.length} files in ${dirPath}`);
+      
+    } catch (error) {
+      console.error(`[Observer] Error accessing directory ${dirPath}:`, error);
+    }
+  }
+
+  public async startObserver(processExisting: boolean = false) {
     // Watch all configured directories
     for (const dirConfig of this.directoryConfigs) {
       const watchPath = path.join(this.contentRoot, dirConfig.path);
+      
+      // Process existing files if requested and configured
+      if (processExisting && dirConfig.services?.imageKit?.processExistingFilesOnStart) {
+        console.log(`[Observer] Processing screenshots for existing files in: ${watchPath}`);
+        // Only process screenshots, not full OpenGraph fetching
+        await this.processScreenshotsForExistingFiles(dirConfig.path);
+      }
+      
       console.log(`[Observer] Watching for Markdown file changes in: ${watchPath}`);
       
       const watcher = chokidar.watch(watchPath, {

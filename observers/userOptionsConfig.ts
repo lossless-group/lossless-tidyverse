@@ -15,6 +15,7 @@ export interface OperationStep {
 export interface ImageKitConfig {
   enabled: boolean;
   overwriteScreenshotUrl: boolean;
+  processExistingFilesOnStart?: boolean; // Whether to process all existing files when the observer starts
   batchSize?: number;
   retryAttempts?: number;
   retryDelayMs?: number;
@@ -86,6 +87,7 @@ export const USER_OPTIONS: UserOptions = {
         imageKit: {
           enabled: true,
           overwriteScreenshotUrl: true,
+          processExistingFilesOnStart: true, // Process all existing files when observer starts
           batchSize: 5,
           retryAttempts: 3,
           retryDelayMs: 1000

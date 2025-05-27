@@ -1,0 +1,170 @@
+
+> tidyverse@1.0.0 start /Users/mpstaton/code/lossless-monorepo/tidyverse
+> tsx observers/index.ts
+
+Registered template: Tooling Document (tooling)
+Registered template: Vocabulary Document (vocabulary)
+Registered template: Prompts Document (prompts)
+Registered template: Technical Specification (specifications)
+Registered template: Tooling Document (tooling)
+Registered template: Vocabulary Document (vocabulary)
+Registered template: Prompts Document (prompts)
+Registered template: Technical Specification (specifications)
+Registered template: Tooling Document (tooling)
+Registered template: Vocabulary Document (vocabulary)
+Registered template: Prompts Document (prompts)
+Registered template: Technical Specification (specifications)
+Starting Frontmatter Observer...
+✅ OpenGraph API key found. OpenGraph fetching is enabled.
+Registered template: Tooling Document (tooling)
+Registered template: Vocabulary Document (vocabulary)
+Registered template: Prompts Document (prompts)
+Registered template: Technical Specification (specifications)
+Report directory: /Users/mpstaton/code/lossless-monorepo/content/reports
+Reports directory: /Users/mpstaton/code/lossless-monorepo/content/reports
+Using default content root: /Users/mpstaton/code/lossless-monorepo/content
+[IssueResolutionProcessor] Initialized
+[Observer] ImageKitService initialized
+[ProcessedFilesTracker] Initializing with the following configuration:
+  - Expiration time: 300000ms
+  - State file path: /Users/mpstaton/code/lossless-monorepo/tidyverse/observers/utils/.observer-state.json
+  - Persist state to file: false
+  - Critical files: why text manipulation is now mission critical.md
+[ProcessedFilesTracker] Resetting processed files tracking
+[ProcessedFilesTracker] Processed files tracking reset complete. Set size: 0
+[ProcessedFilesTracker] Initialization complete
+[Observer] FileSystemObserver initialized with clean processed files state
+[Observer] Critical files configured: Why Text Manipulation is Now Mission Critical.md
+[Observer] Watching for Markdown file changes in: /Users/mpstaton/code/lossless-monorepo/content/essays
+[Observer] Processing screenshots for existing files in: /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done
+[Observer] [ImageKit] Found 84 Markdown files to process for screenshots in tooling/Enterprise Jobs-to-be-Done
+[Observer] [ImageKit] No URL found in /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/AdaptCMS.md, skipping
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Ahrefs AI.md
+[ImageKit] Generating new screenshot for https://ahrefs.com/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://ahrefs.com/
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/a3ba1a97f24044f294008f01d26b4406d96522df35a0cdaa2fb34803f2e7f83a.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/a3ba1a97f24044f294008f01d26b4406d96522df35a0cdaa2fb34803f2e7f83a.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Ahrefs AI_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Ahrefs AI_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Ahrefs_AI_og_screenshot_LSxgXyYCo7.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Ahrefs AI.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Apollo.md
+[ImageKit] Generating new screenshot for https://www.apollo.io/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://www.apollo.io/
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/bde0eb873668124727181f252efb9381732e8c5c61572d76a7742b46ad0cf1bf.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/bde0eb873668124727181f252efb9381732e8c5c61572d76a7742b46ad0cf1bf.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Apollo_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Apollo_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Apollo_og_screenshot_I67avfJ6X.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Apollo.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Appsheet.md
+[ImageKit] Generating new screenshot for https://about.appsheet.com/home/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://about.appsheet.com/home/
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/5f5b423b7efe0eac35a2dad7487b92d152f7c5bfc2771e5b190f86c0e7b49d86.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/5f5b423b7efe0eac35a2dad7487b92d152f7c5bfc2771e5b190f86c0e7b49d86.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Appsheet_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Appsheet_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Appsheet_og_screenshot_FmfgAyLND.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Appsheet.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Ardoq.md
+[ImageKit] Generating new screenshot for https://www.ardoq.com
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://www.ardoq.com
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/4ff0c73628f175ce346bf5ce8eb1a846297aae9ac7bf5e3b6d9718b778b790e0.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/4ff0c73628f175ce346bf5ce8eb1a846297aae9ac7bf5e3b6d9718b778b790e0.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Ardoq_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Ardoq_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Ardoq_og_screenshot_VJ5fRKnMH.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Ardoq.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Board.md
+[ImageKit] Generating new screenshot for https://www.board.com/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://www.board.com/
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/b48b87d9fe4d7bd770ef01b9ff1f7c7046cb11a5c1ca97e943c510f1fd33f461.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/b48b87d9fe4d7bd770ef01b9ff1f7c7046cb11a5c1ca97e943c510f1fd33f461.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Board_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Board_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Board_og_screenshot_fOKQ9aihXu.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Board.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Bolto.md
+[ImageKit] Generating new screenshot for https://www.bolto.com/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://www.bolto.com/
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/dc7456c1c58366a519613911527d7bbb89e9010654d58f3f0bb0d5423569b1fe.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/dc7456c1c58366a519613911527d7bbb89e9010654d58f3f0bb0d5423569b1fe.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Bolto_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Bolto_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Bolto_og_screenshot_Yo0FlCYv9.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Bolto.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Bubble.md
+[ImageKit] Generating new screenshot for https://bubble.io
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://bubble.io
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/f6d9d55e515253b97e4fbd607750653904ebce1852e538d5c9515c229ae262dd.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/f6d9d55e515253b97e4fbd607750653904ebce1852e538d5c9515c229ae262dd.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Bubble_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Bubble_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Bubble_og_screenshot_SAuwRvTWM.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Bubble.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/ClipzapAI.md
+[ImageKit] Generating new screenshot for https://www.clipzap.ai
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://www.clipzap.ai
+[ImageKit] OpenGraph API returned 500: Internal Server Error
+[ImageKit] Failed to generate screenshot URL for https://www.clipzap.ai
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Coda.md
+[ImageKit] Generating new screenshot for https://coda.io/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://coda.io/
+[ImageKit] OpenGraph API returned 500: Internal Server Error
+[ImageKit] Failed to generate screenshot URL for https://coda.io/
+[Observer] [ImageKit] No URL found in /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content Management Systems/Craft CMS.md, skipping
+[Observer] [ImageKit] No URL found in /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content Management Systems/Hygraph.md, skipping
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content Management Systems/Payload.md
+[ImageKit] Generating new screenshot for https://payloadcms.com/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://payloadcms.com/
+[ImageKit] OpenGraph API returned 500: Internal Server Error
+[ImageKit] Failed to generate screenshot URL for https://payloadcms.com/
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content Management Systems/Sanity.md
+[ImageKit] Generating new screenshot for https://www.sanity.io/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://www.sanity.io/
+[ImageKit] OpenGraph API returned 500: Internal Server Error
+[ImageKit] Failed to generate screenshot URL for https://www.sanity.io/
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content Management Systems/Strapi.md
+[ImageKit] Generating new screenshot for https://strapi.io/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://strapi.io/
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/407f720fd5c830ad860e0d85debde08f7478c0aade2a241d5306ccee6e9aaeac.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/407f720fd5c830ad860e0d85debde08f7478c0aade2a241d5306ccee6e9aaeac.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Strapi_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Strapi_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Strapi_og_screenshot_qW2dJcU0c.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content Management Systems/Strapi.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content Management Systems/Yext.md
+[ImageKit] Generating new screenshot for https://www.yext.com
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://www.yext.com
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/d1ac2724db976e6ec81e0f5147cb3204b3912ace0353ce41dd532d05ec036cdb.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/d1ac2724db976e6ec81e0f5147cb3204b3912ace0353ce41dd532d05ec036cdb.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Yext_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Yext_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Yext_og_screenshot_d1N8RMjfy.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content Management Systems/Yext.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content-Collections.dev.md
+[ImageKit] Generating new screenshot for https://www.content-collections.dev/
+[ImageKit] Waiting 6 seconds before next request...
+[ImageKit] Fetching screenshot from OpenGraph API for https://www.content-collections.dev/
+[ImageKit] Successfully generated screenshot URL: https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/2b53149aee57ec2ddd661c1a190eae4546a450ce61eb3237068fa2202e9cef3b.jpeg
+[ImageKit] Downloading new screenshot from https://og-screenshots-prod.s3.amazonaws.com/1920x1080/80/false/2b53149aee57ec2ddd661c1a190eae4546a450ce61eb3237068fa2202e9cef3b.jpeg
+[ImageKit] Successfully downloaded file to: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Content-Collections.dev_og_screenshot.jpeg
+[ImageKit] Kept downloaded file at: /Users/mpstaton/code/lossless-monorepo/toolkit-screenshots/Content-Collections.dev_og_screenshot.jpeg
+[Observer] [ImageKit] Updating file with ImageKit URL: https://ik.imagekit.io/xvpgfijuw/screenshots_20250527_Content-Collections.dev_og_screenshot_owxXIao-v.jpeg
+[Observer] [ImageKit] Successfully updated /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Content-Collections.dev.md with ImageKit URL
+[Observer] [ImageKit] Processing screenshot for /Users/mpstaton/code/lossless-monorepo/content/tooling/Enterprise Jobs-to-be-Done/Contentsquare.md
+[ImageKit] Generating new screenshot for https://contentsquare.com/
+[ImageKit] Waiting 6 seconds before next request...

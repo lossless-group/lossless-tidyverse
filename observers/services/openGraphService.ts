@@ -378,28 +378,37 @@ function fetchScreenshotUrlInBackground(url: string, filePath: string): void {
  * - Instead, it returns the updated frontmatter object to the Observer.
  * - The Observer is responsible for all file writes, ensuring atomic, DRY, and race-free updates.
  */
+import { updateFrontmatter, writeFrontmatterToFile } from '../utils/yamlFrontmatter';
+
 export async function updateFileWithScreenshotUrl(filePath: string, screenshotUrl: string): Promise<Record<string, any> | null> {
   try {
     // Read file content
     const content = await fs.readFile(filePath, 'utf8');
+    
     // Check if file has frontmatter
-    if (content.startsWith('---')) {
-      // Find the end of frontmatter
-      const endIndex = content.indexOf('---', 3);
-      if (endIndex !== -1) {
-        // Extract frontmatter content
-        const { frontmatter } = extractFrontmatterForOpenGraph(content);
-        if (frontmatter) {
-          // Update frontmatter with screenshot URL
-          frontmatter.og_screenshot_url = screenshotUrl;
-          // Return updated frontmatter (do not write)
-          return frontmatter;
-        }
-      }
+    if (!content.startsWith('---')) {
+      console.error(`[OpenGraph] File ${filePath} has no frontmatter`);
+      return null;
     }
-    return null;
+    
+    // Extract existing frontmatter
+    const { frontmatter } = extractFrontmatterForOpenGraph(content);
+    if (!frontmatter) {
+      console.error(`[OpenGraph] Could not parse frontmatter in ${filePath}`);
+      return null;
+    }
+    
+    // Update frontmatter with screenshot URL after cleaning it
+    const updatedFrontmatter = {
+      ...frontmatter,
+      og_screenshot_url: screenshotUrl.trim().replace(/\s+/g, '')
+    };
+    
+    // Return updated frontmatter (do not write)
+    return updatedFrontmatter;
+    
   } catch (error) {
-    console.error(`Error preparing screenshot URL update for ${filePath}:`, error);
+    console.error(`[OpenGraph] Error preparing screenshot URL update for ${filePath}:`, error);
     return null;
   }
 }
@@ -632,9 +641,8 @@ export async function fetchScreenshotUrl(
       const data = await response.json();
       
       // Check if we got a screenshot URL
-      if (data.screenshotUrl) {
-        console.log(`Successfully fetched screenshot URL for ${url}: ${data.screenshotUrl}`);
-        return data.screenshotUrl;
+      if (data?.screenshotUrl) {
+        return data.screenshotUrl.trim();
       } else {
         console.log(`No screenshot URL found in API response for ${url}`);
         return null;

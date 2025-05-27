@@ -70,7 +70,8 @@ async function main() {
   // Create and start file system observer
   const observer = new FileSystemObserver(templateRegistry, reportingService, contentRoot);
   // === CRITICAL: Explicitly start the persistent watcher ===
-  observer.startObserver();
+  // Pass true to process existing files in directories with processExistingFilesOnStart: true
+  await observer.startObserver(true);
   // === Start RemindersWatcher to process reminders directory ===
   observer.startRemindersWatcher();
   console.log('RemindersWatcher started.');
