@@ -457,26 +457,6 @@ export class FileSystemObserver {
         }
       }
       
-      // (c) ImageKit Screenshots - ONLY evaluate if enabled in directory config
-      if (dirConfig.services.imageKit?.enabled && this.imageKitService) {
-        // Check if we need to process screenshots for this file
-        const imageUrl = originalFrontmatter.open_graph_url || originalFrontmatter.url;
-        if (imageUrl && (!originalFrontmatter.og_screenshot_url || dirConfig.services.imageKit.overwriteScreenshotUrl)) {
-          // Process screenshots asynchronously
-          this.imageKitService.processScreenshots(filePath, originalFrontmatter)
-            .then(result => {
-              if (result) {
-                console.log(`[Observer] [ImageKit] Successfully processed screenshot for ${filePath}`);
-              } else {
-                console.log(`[Observer] [ImageKit] Screenshot processing skipped for ${filePath}`);
-              }
-            })
-            .catch(error => {
-              console.error(`[Observer] [ImageKit] Error processing screenshot for ${filePath}:`, error);
-            });
-        }
-      }
-
       // --- 2. Execute all subsystems that need to act, collect results ---
       // (a) Site UUID (sync)
       if (propertyCollector.expectations.expectSiteUUID) {
@@ -492,21 +472,7 @@ export class FileSystemObserver {
         propertyCollector.expectations.expectSiteUUID = false;
       }
       
-      // (b) Process screenshots if enabled in directory config
-      if (dirConfig.services.imageKit?.enabled && this.imageKitService) {
-        try {
-          const imageUrl = originalFrontmatter.open_graph_url || originalFrontmatter.url;
-          if (imageUrl && (!originalFrontmatter.og_screenshot_url || dirConfig.services.imageKit.overwriteScreenshotUrl)) {
-            // Process screenshots synchronously as part of the operation sequence
-            await this.imageKitService.processScreenshots(filePath, originalFrontmatter);
-            if (dirConfig.services.logging?.imageKit) {
-              console.log(`[Observer] [ImageKit] Successfully processed screenshot for ${filePath}`);
-            }
-          }
-        } catch (error) {
-          console.error(`[Observer] [ImageKit] Error processing screenshot for ${filePath}:`, error);
-        }
-      }
+      
       // (b) OpenGraph (async) - ONLY process if enabled in directory config
       if (propertyCollector.expectations.expectOpenGraph && dirConfig.services.openGraph === true) {
         // Aggressive, comprehensive, continuous commenting:

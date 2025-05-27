@@ -256,8 +256,66 @@ export class ImageKitService extends EventEmitter {
    * @param targetUrl The URL to generate a screenshot for
    * @returns The screenshot URL or null if generation fails
    */
-  private async generateScreenshotUrl(targetUrl: string): Promise<string | null> {
+  private lastRequestTime: number = 0;
+  private requestQueue: Array<() => void> = [];
+  private processingQueue: boolean = false;
+
+  /**
+   * Process the next request in the queue with rate limiting
+   */
+  private async processQueue() {
+    if (this.processingQueue || this.requestQueue.length === 0) {
+      return;
+    }
+
+    this.processingQueue = true;
+    const nextRequest = this.requestQueue.shift()!;
+    
+    try {
+      // Ensure at least 10 seconds between requests
+      const now = Date.now();
+      const timeSinceLastRequest = now - this.lastRequestTime;
+      const minDelay = 10000; // 10 seconds (10,000ms)
+      
+      if (timeSinceLastRequest < minDelay) {
+        const delayNeeded = minDelay - timeSinceLastRequest;
+        console.log(`[ImageKit] Rate limiting: Waiting ${delayNeeded}ms before next API call`);
+        await new Promise(resolve => setTimeout(resolve, delayNeeded));
+      }
+      
+      await nextRequest();
+      this.lastRequestTime = Date.now();
+    } finally {
+      this.processingQueue = false;
+      // Process next request in queue
+      setImmediate(() => this.processQueue());
+    }
+  }
+
+  /**
+   * Add a request to the queue and process it
+   */
+  private async queueRequest<T>(request: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const wrappedRequest = async () => {
+        try {
+          const result = await request();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      
+      this.requestQueue.push(wrappedRequest);
+      this.processQueue();
+    });
+  }
+
+  private async generateScreenshotUrl(targetUrl: string, attempt = 1): Promise<string | null> {
+    const maxAttempts = 3;
+    const baseDelay = 6000; // 6 seconds
     const apiKey = process.env.OPEN_GRAPH_IO_API_KEY;
+    
     if (!apiKey) {
       console.error('[ImageKit] OPEN_GRAPH_IO_API_KEY environment variable is not set');
       return null;
@@ -266,8 +324,21 @@ export class ImageKitService extends EventEmitter {
     const screenshotApiUrl = `https://opengraph.io/api/1.1/screenshot/${encodeURIComponent(targetUrl)}?dimensions=lg&quality=80&accept_lang=en&use_proxy=true&app_id=${apiKey}`;
     
     try {
-      console.log(`[ImageKit] Fetching screenshot from OpenGraph API for ${targetUrl}`);
-      const response = await fetch(screenshotApiUrl);
+      console.log(`[ImageKit] [Attempt ${attempt}/${maxAttempts}] Fetching screenshot from OpenGraph API for ${targetUrl}`);
+      
+      // Use the queue to manage rate limiting
+      const response = await this.queueRequest(() => fetch(screenshotApiUrl));
+      
+      if (response.status === 429 || response.status >= 500) {
+        // Handle rate limiting or server errors with exponential backoff
+        if (attempt < maxAttempts) {
+          const delay = baseDelay * Math.pow(2, attempt - 1);
+          console.log(`[ImageKit] API returned ${response.status}, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return this.generateScreenshotUrl(targetUrl, attempt + 1);
+        }
+        throw new Error(`API returned ${response.status} after ${maxAttempts} attempts`);
+      }
       
       if (!response.ok) {
         console.error(`[ImageKit] OpenGraph API returned ${response.status}: ${response.statusText}`);
@@ -285,7 +356,15 @@ export class ImageKitService extends EventEmitter {
         return null;
       }
     } catch (error) {
-      console.error('[ImageKit] Error generating screenshot URL:', error);
+      console.error(`[ImageKit] Error generating screenshot URL (attempt ${attempt}/${maxAttempts}):`, error);
+      
+      if (attempt < maxAttempts) {
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.log(`[ImageKit] Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.generateScreenshotUrl(targetUrl, attempt + 1);
+      }
+      
       return null;
     }
   }
@@ -349,8 +428,9 @@ export class ImageKitService extends EventEmitter {
         urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
       });
 
-      // Add the screenshots directory to the file path
-      const filePath = `screenshots/${filename}`;
+      // Ensure the screenshots directory has a trailing slash for consistency
+      const screenshotsDir = 'screenshots';
+      const filePath = `${screenshotsDir}/${filename}`.replace(/\/+/g, '/'); // Normalize path
       
       // Upload the file to ImageKit
       const uploadResponse = await imagekit.upload({
