@@ -14,6 +14,7 @@ export interface OperationStep {
 
 export interface ImageKitConfig {
   enabled: boolean;
+  uploadFolder?: string; // The folder path in ImageKit where screenshots should be uploaded (e.g., '/uploads/lossless/screenshots')
   overwriteScreenshotUrl: boolean;
   processExistingFilesOnStart?: boolean; // Whether to process all existing files when the observer starts
   batchSize?: number;
@@ -79,13 +80,14 @@ export const USER_OPTIONS: UserOptions = {
       }
     },
     {
-      path: 'tooling/Enterprise Jobs-to-be-Done',
+      path: 'tooling/Training',
       template: 'tooling', // matches a template id
       services: {
         openGraph: true,
         citations: false,
         imageKit: {
           enabled: true,
+          uploadFolder: '/uploads/lossless/screenshots',
           overwriteScreenshotUrl: true,
           processExistingFilesOnStart: true, // Process all existing files when observer starts
           batchSize: 5,

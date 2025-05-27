@@ -428,18 +428,21 @@ export class ImageKitService extends EventEmitter {
         urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
       });
 
-      // Ensure the screenshots directory has a trailing slash for consistency
-      const screenshotsDir = 'screenshots';
-      const filePath = `${screenshotsDir}/${filename}`.replace(/\/+/g, '/'); // Normalize path
+      // Use the configured upload folder or default to 'screenshots'
+      const uploadFolder = this.config.uploadFolder || 'screenshots';
+      const filePath = `${uploadFolder}/${filename}`.replace(/\/+/g, '/'); // Normalize path
+      console.log(`[ImageKit] Uploading to folder: ${uploadFolder}`);
       
-      // Upload the file to ImageKit
+      // Upload the file to ImageKit with exact path and no unique filename generation
       const uploadResponse = await imagekit.upload({
         file: fileData,
-        fileName: filePath, // Include the full path with screenshots directory
-        useUniqueFileName: true,
-        overwriteFile: false,
+        fileName: filePath, // The full path where we want to store the file
+        useUniqueFileName: false, // Don't modify the filename
+        overwriteFile: true, // Overwrite if file exists (since we're not using unique names)
         tags: ['auto-uploaded', 'screenshot', 'og-screenshot']
       });
+      
+      console.log(`[ImageKit] Uploaded to: ${uploadResponse.filePath}`);
 
       if (!uploadResponse?.url) {
         throw new Error('No URL returned from ImageKit upload');
