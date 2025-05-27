@@ -118,6 +118,12 @@ function formatFrontmatterLine(key: string, value: any): string {
     const singleQuoted = `'${value.replace(/'/g, "''")}'`;
     return `${key}: ${singleQuoted}\n`;
   }
+  // Check for block scalar syntax in strings
+  if (typeof value === 'string' && /^\s*[>|][-+0-9]*\s*$/.test(value.trim())) {
+    // If it looks like block scalar syntax, quote it immediately
+    return `${key}: '${value.replace(/'/g, "''")}'\n`;
+  }
+  
   // General string handling (use quoteForYaml for all other strings)
   if (typeof value === 'string') {
     return `${key}: ${quoteForYaml(value)}\n`;
@@ -144,6 +150,17 @@ export function quoteForYaml(value: string): string {
     // String is already quoted, return as is
     return value;
   }
+  
+  // Check if this looks like a URL (http:// or https://)
+  const isUrl = /^https?:\/\//i.test(value);
+
+  // Check for block scalar syntax
+  const hasBlockScalar = /^\s*[>|][-+0-9]*\s*$/.test(value.trim());
+
+  // If it's a block scalar, force it to be treated as a regular string
+  if (hasBlockScalar) {
+    return `'${value.replace(/'/g, "''")}'`; // Single quote the entire thing
+  }
 
   // YAML reserved chars: : # > | { } [ ] , & * ! ? | - < > = % @ ` (and whitespace)
   // Also, whitespace (space, tab, newline) triggers quoting
@@ -151,7 +168,9 @@ export function quoteForYaml(value: string): string {
   const hasSingle = value.includes("'");
   const hasDouble = value.includes('"');
   // Needs quoting if it has reserved chars, is empty, or starts with YAML special chars
-  const needsQuoting = reserved.test(value) || value === "" || value.startsWith("-") || value.startsWith("?") || value.startsWith(":");
+  const needsQuoting = isUrl
+    ? /[{}\[\]\s]/.test(value)  // Only quote URLs if they contain problematic chars
+    : reserved.test(value) || value === "" || value.startsWith("-") || value.startsWith("?") || value.startsWith(":");
 
   if (!needsQuoting) {
     // Safe as bare string

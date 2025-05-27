@@ -428,15 +428,19 @@ export class ImageKitService extends EventEmitter {
         urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
       });
 
-      // Use the configured upload folder or default to 'screenshots'
-      const uploadFolder = this.config.uploadFolder || 'screenshots';
-      const filePath = `${uploadFolder}/${filename}`.replace(/\/+/g, '/'); // Normalize path
-      console.log(`[ImageKit] Uploading to folder: ${uploadFolder}`);
+      // Ensure upload folder doesn't have leading/trailing slashes and normalize the path
+      const uploadFolder = (this.config.uploadFolder || 'screenshots')
+        .replace(/^\/+/g, '')  // Remove leading slashes
+        .replace(/\/+$/g, '')   // Remove trailing slashes
+        .replace(/\/+/g, '/');  // Normalize multiple slashes
       
-      // Upload the file to ImageKit with exact path and no unique filename generation
+      console.log(`[ImageKit] Uploading to folder: ${uploadFolder}, filename: ${filename}`);
+      
+      // Upload the file to ImageKit with folder and filename separated
       const uploadResponse = await imagekit.upload({
         file: fileData,
-        fileName: filePath, // The full path where we want to store the file
+        fileName: filename, // Just the filename without path
+        folder: uploadFolder, // Folder is specified separately
         useUniqueFileName: false, // Don't modify the filename
         overwriteFile: true, // Overwrite if file exists (since we're not using unique names)
         tags: ['auto-uploaded', 'screenshot', 'og-screenshot']

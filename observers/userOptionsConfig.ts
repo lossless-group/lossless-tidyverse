@@ -80,16 +80,16 @@ export const USER_OPTIONS: UserOptions = {
       }
     },
     {
-      path: 'tooling/Training',
+      path: 'tooling/AI-Toolkit/Agentic AI',
       template: 'tooling', // matches a template id
       services: {
         openGraph: true,
         citations: false,
         imageKit: {
           enabled: true,
-          uploadFolder: '/uploads/lossless/screenshots',
+          uploadFolder: 'uploads/lossless/screenshots',
           overwriteScreenshotUrl: true,
-          processExistingFilesOnStart: true, // Process all existing files when observer starts
+          processExistingFilesOnStart: true,
           batchSize: 5,
           retryAttempts: 3,
           retryDelayMs: 1000
@@ -215,12 +215,4 @@ export const USER_OPTIONS: UserOptions = {
   // Option: If true, observer scripts may auto-add missing/empty frontmatter fields with defaults.
   // If false (default), scripts only report missing/empty fields and DO NOT modify files.
   
-  /**
-   * Critical files that should always be processed regardless of tracking status.
-   * These files will bypass the processed files check and always be processed on each run.
-   */
-  criticalFiles: [
-    'Why Text Manipulation is Now Mission Critical.md'
-  ],
-  // ========================================================================
 };
