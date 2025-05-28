@@ -74,6 +74,14 @@ export function formatFrontmatter(frontmatter: Record<string, any>, templateOrde
   // Output any remaining keys (not in template) in their original order
   for (const [key, value] of Object.entries(formattedFrontmatter)) {
     if (arrayFields.includes(key)) continue;
+    
+    // Special handling for og_screenshot_url to ensure it's on a single line
+    if (key === 'og_screenshot_url' && typeof value === 'string') {
+      const cleanedValue = value.trim().replace(/\n/g, '');
+      yamlContent += `${key}: '${cleanedValue.replace(/'/g, "''")}'\n`;
+      continue;
+    }
+    
     yamlContent += formatFrontmatterLine(key, value);
   }
   
@@ -153,6 +161,14 @@ export function quoteForYaml(value: string): string {
   
   // Check if this looks like a URL (http:// or https://)
   const isUrl = /^https?:\/\//i.test(value);
+  
+  // Special handling for URLs to ensure they remain on a single line
+  if (isUrl) {
+    // Remove any newlines and extra whitespace
+    const cleanUrl = value.replace(/\s+/g, ' ').trim();
+    // Always quote URLs to be safe, using single quotes unless they contain single quotes
+    return cleanUrl.includes("'") ? `"${cleanUrl}"` : `'${cleanUrl}'`;
+  }
 
   // Check for block scalar syntax
   const hasBlockScalar = /^\s*[>|][-+0-9]*\s*$/.test(value.trim());
@@ -168,9 +184,7 @@ export function quoteForYaml(value: string): string {
   const hasSingle = value.includes("'");
   const hasDouble = value.includes('"');
   // Needs quoting if it has reserved chars, is empty, or starts with YAML special chars
-  const needsQuoting = isUrl
-    ? /[{}\[\]\s]/.test(value)  // Only quote URLs if they contain problematic chars
-    : reserved.test(value) || value === "" || value.startsWith("-") || value.startsWith("?") || value.startsWith(":");
+  const needsQuoting = reserved.test(value) || value === "" || value.startsWith("-") || value.startsWith("?") || value.startsWith(":");
 
   if (!needsQuoting) {
     // Safe as bare string

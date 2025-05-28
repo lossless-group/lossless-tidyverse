@@ -225,7 +225,14 @@ export class FileSystemObserver {
             
             try {
               // Read the current file content
-              const content = await fs.promises.readFile(filePath, 'utf8');
+              let content = await fs.promises.readFile(filePath, 'utf8');
+              
+              // Clean up any existing og_screenshot_url in the content
+              // This handles both YAML format and any raw URLs that might be in the content
+              content = content.replace(/^og_screenshot_url\s*:.*$/gm, '')
+                            .replace(/^https?:\/\/.*$/gm, '')
+                            .replace(/\n{3,}/g, '\n\n')  // Clean up multiple newlines
+                            .trim();
               
               // Update the frontmatter with the new ImageKit URL
               const updatedFrontmatter = {
