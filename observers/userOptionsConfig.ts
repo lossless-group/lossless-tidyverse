@@ -80,7 +80,7 @@ export const USER_OPTIONS: UserOptions = {
       }
     },
     {
-      path: 'tooling/AI-Toolkit/Generative AI',
+      path: 'tooling/Software Development/Frameworks',
       template: 'tooling', // matches a template id
       services: {
         openGraph: true,

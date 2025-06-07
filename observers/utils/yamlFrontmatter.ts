@@ -153,9 +153,16 @@ function formatFrontmatterLine(key: string, value: any): string {
  */
 export function quoteForYaml(value: string): string {
   // First check if the string is already properly quoted
-  if ((value.startsWith("'") && value.endsWith("'")) || 
-      (value.startsWith('"') && value.endsWith('"'))) {
-    // String is already quoted, return as is
+  const isQuoted = (value.startsWith("'") && value.endsWith("'")) || 
+                 (value.startsWith('"') && value.endsWith('"'));
+  
+  // Special case: Handle malformed block scalars that might be part of a URL
+  if (value.trim() === '>-' || value.trim() === '|-' || value.trim() === '>' || value.trim() === '|') {
+    return "''"; // Return empty string for malformed block scalars
+  }
+  
+  // If it's properly quoted and not a malformed block scalar, return as is
+  if (isQuoted) {
     return value;
   }
   
