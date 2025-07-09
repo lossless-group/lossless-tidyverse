@@ -30,6 +30,8 @@ import { EssaysWatcher } from './watchers/essaysWatcher';
 import { ToolingWatcher } from './watchers/toolkitWatcher';
 // --- Import IssueResolutionProcessor for issue-resolution collection ---
 import { IssueResolutionProcessor } from './watchers/issueResolutionWatcher';
+// --- Import ImageKitService for screenshot processing ---
+import { ImageKitService } from './services/imageKitService';
 // --- Import the centralized processed files tracker ---
 import { 
   initializeProcessedFilesTracker, 
@@ -57,8 +59,9 @@ export class FileSystemObserver {
   private essaysWatcher: EssaysWatcher | null = null;
   private toolingWatcher: ToolingWatcher | null = null;
   private shutdownInitiated: boolean = false;
-  // === Add IssueResolutionProcessor instance ===
+  // === Add Service Instances ===
   private issueResolutionProcessor: IssueResolutionProcessor | null = null;
+  private imageKitService: ImageKitService | null = null;
 
   /**
    * Reset the processed files set
@@ -99,8 +102,19 @@ export class FileSystemObserver {
     this.templateRegistry = templateRegistry;
     // Use all directory configurations from USER_OPTIONS
     this.directoryConfigs = USER_OPTIONS.directories;
-    // === Instantiate IssueResolutionProcessor ===
+    // === Instantiate Services ===
     this.issueResolutionProcessor = new IssueResolutionProcessor(this.templateRegistry, this.reportingService);
+    
+    // Initialize ImageKitService if any directory has it enabled
+    if (this.directoryConfigs.some(config => config.services.imageKit?.enabled)) {
+      // Find the first config with ImageKit enabled to initialize the service
+      const imageKitConfig = this.directoryConfigs.find(config => config.services.imageKit?.enabled)?.services.imageKit;
+      if (imageKitConfig) {
+        this.imageKitService = new ImageKitService(imageKitConfig);
+        console.log('[Observer] ImageKitService initialized');
+      }
+    }
+    
     // Register shutdown hooks bound to this instance
     const boundShutdown = this.handleShutdown.bind(this);
     process.on('SIGINT', boundShutdown);
@@ -128,10 +142,194 @@ export class FileSystemObserver {
   /**
    * Starts the observer: watches for .md file changes in all configured directories
    */
-  public startObserver() {
+  /**
+   * Process all existing Markdown files in a directory to update screenshots
+   * This is a specialized version of processExistingFiles that only handles screenshots
+   * @param dirPath Relative path from content root (e.g., 'tooling/Enterprise Jobs-to-be-Done')
+   */
+  public async processScreenshotsForExistingFiles(dirPath: string) {
+    const dirConfig = this.directoryConfigs.find(c => 
+      path.normalize(c.path) === path.normalize(dirPath)
+    );
+    
+    if (!dirConfig) {
+      console.error(`[Observer] No configuration found for directory: ${dirPath}`);
+      return;
+    }
+
+    // Skip if ImageKit is not enabled for this directory
+    if (!dirConfig.services.imageKit?.enabled || !this.imageKitService) {
+      console.log(`[Observer] [ImageKit] Screenshot processing is disabled for directory: ${dirPath}`);
+      return;
+    }
+
+    const fullPath = path.join(this.contentRoot, dirPath);
+    
+    try {
+      // Check if directory exists
+      await fs.promises.access(fullPath, fs.constants.R_OK);
+      
+      // Read all markdown files recursively
+      const files: string[] = [];
+      const readDir = async (dir: string) => {
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await readDir(fullPath);
+          } else if (entry.isFile() && entry.name.endsWith('.md')) {
+            files.push(fullPath);
+          }
+        }
+      };
+      
+      await readDir(fullPath);
+      
+      console.log(`[Observer] [ImageKit] Found ${files.length} Markdown files to process for screenshots in ${dirPath}`);
+      
+      // Process each file for screenshots only
+      for (const filePath of files) {
+        try {
+          // Read file content
+          const fileContent = await fs.promises.readFile(filePath, 'utf-8');
+          const frontmatter = extractFrontmatter(fileContent);
+          
+          if (!frontmatter) {
+            console.log(`[Observer] [ImageKit] No frontmatter found in ${filePath}, skipping`);
+            continue;
+          }
+          
+          // Only process if we have a URL and either don't have a screenshot or we're forcing overwrite
+          const imageUrl = frontmatter.open_graph_url || frontmatter.url;
+          if (!imageUrl) {
+            console.log(`[Observer] [ImageKit] No URL found in ${filePath}, skipping`);
+            continue;
+          }
+          
+          if (frontmatter.og_screenshot_url && dirConfig.services.imageKit.overwriteScreenshotUrl !== true) {
+            console.log(`[Observer] [ImageKit] Screenshot already exists for ${filePath} and overwrite is disabled, skipping`);
+            continue;
+          }
+          
+          // Process the screenshot - create a copy of frontmatter to prevent modifications
+          console.log(`[Observer] [ImageKit] Processing screenshot for ${filePath}`);
+          const frontmatterCopy = JSON.parse(JSON.stringify(frontmatter));
+          const imageKitUrl = await this.imageKitService.processScreenshots(filePath, frontmatterCopy);
+          
+          if (imageKitUrl) {
+            // Update the file with the new ImageKit URL
+            console.log(`[Observer] [ImageKit] Updating file with ImageKit URL: ${imageKitUrl}`);
+            
+            // Import the YAML frontmatter utilities
+            const { updateFrontmatter, writeFrontmatterToFile } = await import('./utils/yamlFrontmatter');
+            
+            try {
+              // Read the current file content
+              let content = await fs.promises.readFile(filePath, 'utf8');
+              
+              // Clean up any existing og_screenshot_url in the content
+              // This handles both YAML format and any raw URLs that might be in the content
+              content = content.replace(/^og_screenshot_url\s*:.*$/gm, '')
+                            .replace(/^https?:\/\/.*$/gm, '')
+                            .replace(/\n{3,}/g, '\n\n')  // Clean up multiple newlines
+                            .trim();
+              
+              // Update the frontmatter with the new ImageKit URL
+              const updatedFrontmatter = {
+                ...frontmatter,
+                og_screenshot_url: imageKitUrl
+              };
+              
+              // Update the file content with the new frontmatter
+              const updatedContent = updateFrontmatter(content, updatedFrontmatter);
+              
+              // Write the updated content back to the file
+              await fs.promises.writeFile(filePath, updatedContent, 'utf8');
+              console.log(`[Observer] [ImageKit] Successfully updated ${filePath} with ImageKit URL`);
+              
+            } catch (error) {
+              console.error(`[Observer] [ImageKit] Error updating file ${filePath}:`, error);
+            }
+          }
+          
+        } catch (error) {
+          console.error(`[Observer] [ImageKit] Error processing screenshot for ${filePath}:`, error);
+        }
+      }
+      
+      console.log(`[Observer] [ImageKit] Finished processing screenshots for ${files.length} files in ${dirPath}`);
+      
+    } catch (error) {
+      console.error(`[Observer] [ImageKit] Error accessing directory ${dirPath}:`, error);
+    }
+  }
+
+  /**
+   * Process all existing Markdown files in a directory
+   * @param dirPath Relative path from content root (e.g., 'tooling/Enterprise Jobs-to-be-Done')
+   */
+  public async processExistingFiles(dirPath: string) {
+    const dirConfig = this.directoryConfigs.find(c => 
+      path.normalize(c.path) === path.normalize(dirPath)
+    );
+    
+    if (!dirConfig) {
+      console.error(`[Observer] No configuration found for directory: ${dirPath}`);
+      return;
+    }
+
+    const fullPath = path.join(this.contentRoot, dirPath);
+    
+    try {
+      // Check if directory exists
+      await fs.promises.access(fullPath, fs.constants.R_OK);
+      
+      // Read all markdown files recursively
+      const files: string[] = [];
+      const readDir = async (dir: string) => {
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await readDir(fullPath);
+          } else if (entry.isFile() && entry.name.endsWith('.md')) {
+            files.push(fullPath);
+          }
+        }
+      };
+      
+      await readDir(fullPath);
+      
+      console.log(`[Observer] Found ${files.length} Markdown files in ${dirPath}`);
+      
+      // Process each file
+      for (const filePath of files) {
+        try {
+          await this.onChange(filePath, dirConfig);
+        } catch (error) {
+          console.error(`[Observer] Error processing ${filePath}:`, error);
+        }
+      }
+      
+      console.log(`[Observer] Finished processing ${files.length} files in ${dirPath}`);
+      
+    } catch (error) {
+      console.error(`[Observer] Error accessing directory ${dirPath}:`, error);
+    }
+  }
+
+  public async startObserver(processExisting: boolean = false) {
     // Watch all configured directories
     for (const dirConfig of this.directoryConfigs) {
       const watchPath = path.join(this.contentRoot, dirConfig.path);
+      
+      // Process existing files if requested and configured
+      if (processExisting && dirConfig.services?.imageKit?.processExistingFilesOnStart) {
+        console.log(`[Observer] Processing screenshots for existing files in: ${watchPath}`);
+        // Only process screenshots, not full OpenGraph fetching
+        await this.processScreenshotsForExistingFiles(dirConfig.path);
+      }
+      
       console.log(`[Observer] Watching for Markdown file changes in: ${watchPath}`);
       
       const watcher = chokidar.watch(watchPath, {
@@ -265,7 +463,7 @@ export class FileSystemObserver {
           console.log(`[Observer] [OpenGraph] OpenGraph is disabled for ${filePath} (directory config: openGraph: false)`);
         }
       }
-
+      
       // --- 2. Execute all subsystems that need to act, collect results ---
       // (a) Site UUID (sync)
       if (propertyCollector.expectations.expectSiteUUID) {
@@ -280,6 +478,8 @@ export class FileSystemObserver {
         }
         propertyCollector.expectations.expectSiteUUID = false;
       }
+      
+      
       // (b) OpenGraph (async) - ONLY process if enabled in directory config
       if (propertyCollector.expectations.expectOpenGraph && dirConfig.services.openGraph === true) {
         // Aggressive, comprehensive, continuous commenting:
@@ -699,17 +899,33 @@ export class FileSystemObserver {
         this.reportingService.logShutdownDiagnostic(`Error during shutdown: ${errorMessage}`);
       }
     } finally {
-      
-      // CRITICAL: Explicitly shut down the processed files tracker before exiting
-      // This ensures that when the process is restarted, it starts with a clean slate
-      console.log('[Observer] Shutting down processed files tracker');
-      shutdownProcessedFilesTracker();
-      
-      console.log('[Observer] Exiting in 250ms...');
-      setTimeout(() => {
-        console.log('[Observer] Process exit now.');
-        process.exit(0);
-      }, 250);
+      try {
+        // Clean up ImageKitService if it was initialized
+        if (this.imageKitService) {
+          try {
+            console.log('[Observer] Shutting down ImageKitService...');
+            await this.imageKitService.shutdown();
+            console.log('[Observer] ImageKitService shutdown complete');
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error('[Observer] Error during ImageKitService shutdown:', errorMessage);
+            if (this.reportingService) {
+              this.reportingService.logShutdownDiagnostic(`Error during ImageKitService shutdown: ${errorMessage}`);
+            }
+          }
+        }
+      } finally {
+        // CRITICAL: Explicitly shut down the processed files tracker before exiting
+        // This ensures that when the process is restarted, it starts with a clean slate
+        console.log('[Observer] Shutting down processed files tracker');
+        await shutdownProcessedFilesTracker();
+        
+        console.log('[Observer] Exiting in 250ms...');
+        setTimeout(() => {
+          console.log('[Observer] Process exit now.');
+          process.exit(0);
+        }, 250);
+      }
     }
   }
 }

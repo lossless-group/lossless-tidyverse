@@ -12,18 +12,35 @@ export interface OperationStep {
   delayMs?: number;
 }
 
+export interface ImageKitConfig {
+  enabled: boolean;
+  uploadFolder?: string; // The folder path in ImageKit where screenshots should be uploaded (e.g., '/uploads/lossless/screenshots')
+  overwriteScreenshotUrl: boolean;
+  processExistingFilesOnStart?: boolean; // Whether to process all existing files when the observer starts
+  batchSize?: number;
+  retryAttempts?: number;
+  retryDelayMs?: number;
+  logging?: boolean | {
+    debug?: boolean;
+    info?: boolean;
+    error?: boolean;
+  };
+}
+
 export interface DirectoryConfig {
   path: string; // Relative to content root
   template: string; // Template ID
   services: {
     openGraph: boolean;
     citations: boolean;
+    imageKit?: ImageKitConfig; // Configuration for ImageKit screenshot processing
     reorderYamlToTemplate?: boolean; // If true, output YAML will be reordered to match template property order
     addSiteUUID?: boolean; // Controls addSiteUUID handler ON/OFF
     logging?: {
       extractedFrontmatter?: boolean;
       addSiteUUID?: boolean;
       openGraph?: boolean;
+      imageKit?: boolean;
     };
   };
   operationSequence?: OperationStep[];
@@ -63,21 +80,32 @@ export const USER_OPTIONS: UserOptions = {
       }
     },
     {
-      path: 'tooling/Enterprise Jobs-to-be-Done',
+      path: 'tooling/Products',
       template: 'tooling', // matches a template id
       services: {
         openGraph: true,
         citations: false,
-        reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
+        imageKit: {
+          enabled: true,
+          uploadFolder: 'uploads/lossless/screenshots',
+          overwriteScreenshotUrl: true,
+          processExistingFilesOnStart: true,
+          batchSize: 5,
+          retryAttempts: 3,
+          retryDelayMs: 1000
+        },
+        reorderYamlToTemplate: true, // If true, output YAML will be reordered to match template property order
         logging: {
           extractedFrontmatter: true,
           addSiteUUID: true,
-          openGraph: true
+          openGraph: true,
+          imageKit: true
         }
       },
       operationSequence: [
         { op: 'addSiteUUID', delayMs: 25 },
         { op: 'fetchOpenGraph', delayMs: 25 },
+        { op: 'processScreenshots', delayMs: 25 },
         { op: 'validateFrontmatter', delayMs: 25 }
       ]
     },
@@ -187,12 +215,4 @@ export const USER_OPTIONS: UserOptions = {
   // Option: If true, observer scripts may auto-add missing/empty frontmatter fields with defaults.
   // If false (default), scripts only report missing/empty fields and DO NOT modify files.
   
-  /**
-   * Critical files that should always be processed regardless of tracking status.
-   * These files will bypass the processed files check and always be processed on each run.
-   */
-  criticalFiles: [
-    'Why Text Manipulation is Now Mission Critical.md'
-  ],
-  // ========================================================================
 };

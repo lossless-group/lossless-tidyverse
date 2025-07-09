@@ -74,6 +74,14 @@ export function formatFrontmatter(frontmatter: Record<string, any>, templateOrde
   // Output any remaining keys (not in template) in their original order
   for (const [key, value] of Object.entries(formattedFrontmatter)) {
     if (arrayFields.includes(key)) continue;
+    
+    // Special handling for og_screenshot_url to ensure it's on a single line
+    if (key === 'og_screenshot_url' && typeof value === 'string') {
+      const cleanedValue = value.trim().replace(/\n/g, '');
+      yamlContent += `${key}: '${cleanedValue.replace(/'/g, "''")}'\n`;
+      continue;
+    }
+    
     yamlContent += formatFrontmatterLine(key, value);
   }
   
@@ -118,6 +126,12 @@ function formatFrontmatterLine(key: string, value: any): string {
     const singleQuoted = `'${value.replace(/'/g, "''")}'`;
     return `${key}: ${singleQuoted}\n`;
   }
+  // Check for block scalar syntax in strings
+  if (typeof value === 'string' && /^\s*[>|][-+0-9]*\s*$/.test(value.trim())) {
+    // If it looks like block scalar syntax, quote it immediately
+    return `${key}: '${value.replace(/'/g, "''")}'\n`;
+  }
+  
   // General string handling (use quoteForYaml for all other strings)
   if (typeof value === 'string') {
     return `${key}: ${quoteForYaml(value)}\n`;
@@ -139,10 +153,36 @@ function formatFrontmatterLine(key: string, value: any): string {
  */
 export function quoteForYaml(value: string): string {
   // First check if the string is already properly quoted
-  if ((value.startsWith("'") && value.endsWith("'")) || 
-      (value.startsWith('"') && value.endsWith('"'))) {
-    // String is already quoted, return as is
+  const isQuoted = (value.startsWith("'") && value.endsWith("'")) || 
+                 (value.startsWith('"') && value.endsWith('"'));
+  
+  // Special case: Handle malformed block scalars that might be part of a URL
+  if (value.trim() === '>-' || value.trim() === '|-' || value.trim() === '>' || value.trim() === '|') {
+    return "''"; // Return empty string for malformed block scalars
+  }
+  
+  // If it's properly quoted and not a malformed block scalar, return as is
+  if (isQuoted) {
     return value;
+  }
+  
+  // Check if this looks like a URL (http:// or https://)
+  const isUrl = /^https?:\/\//i.test(value);
+  
+  // Special handling for URLs to ensure they remain on a single line
+  if (isUrl) {
+    // Remove any newlines and extra whitespace
+    const cleanUrl = value.replace(/\s+/g, ' ').trim();
+    // Always quote URLs to be safe, using single quotes unless they contain single quotes
+    return cleanUrl.includes("'") ? `"${cleanUrl}"` : `'${cleanUrl}'`;
+  }
+
+  // Check for block scalar syntax
+  const hasBlockScalar = /^\s*[>|][-+0-9]*\s*$/.test(value.trim());
+
+  // If it's a block scalar, force it to be treated as a regular string
+  if (hasBlockScalar) {
+    return `'${value.replace(/'/g, "''")}'`; // Single quote the entire thing
   }
 
   // YAML reserved chars: : # > | { } [ ] , & * ! ? | - < > = % @ ` (and whitespace)
