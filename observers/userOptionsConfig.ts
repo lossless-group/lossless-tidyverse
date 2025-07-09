@@ -27,7 +27,7 @@ export interface ImageKitConfig {
   };
 }
 
-interface DirectoryConfig {
+export interface DirectoryConfig {
   path: string; // Relative to content root
   template: string; // Template ID
   services: {
@@ -80,7 +80,7 @@ export const USER_OPTIONS: UserOptions = {
       }
     },
     {
-      path: 'tooling/Software Development/Frameworks',
+      path: 'tooling/Products',
       template: 'tooling', // matches a template id
       services: {
         openGraph: true,
@@ -94,7 +94,7 @@ export const USER_OPTIONS: UserOptions = {
           retryAttempts: 3,
           retryDelayMs: 1000
         },
-        reorderYamlToTemplate: false, // If true, output YAML will be reordered to match template property order
+        reorderYamlToTemplate: true, // If true, output YAML will be reordered to match template property order
         logging: {
           extractedFrontmatter: true,
           addSiteUUID: true,

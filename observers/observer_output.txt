@@ -1,0 +1,36 @@
+
+> frontmatter-observer@0.1.0 start /Users/mpstaton/code/lossless-monorepo/tidyverse/observers
+> ts-node index.ts
+
+Registered template: Tooling Document (tooling)
+Registered template: Vocabulary Document (vocabulary)
+Registered template: Prompts Document (prompts)
+Registered template: Technical Specification (specifications)
+Registered template: Tooling Document (tooling)
+Registered template: Vocabulary Document (vocabulary)
+Registered template: Prompts Document (prompts)
+Registered template: Technical Specification (specifications)
+Registered template: Tooling Document (tooling)
+Registered template: Vocabulary Document (vocabulary)
+Registered template: Prompts Document (prompts)
+Registered template: Technical Specification (specifications)
+/Users/mpstaton/code/lossless-monorepo/tidyverse/observers/node_modules/.pnpm/ts-node@10.9.2_@types+node@20.17.30_typescript@5.8.3/node_modules/ts-node/src/index.ts:859
+    return new TSError(diagnosticText, diagnosticCodes, diagnostics);
+           ^
+TSError: ⨯ Unable to compile TypeScript:
+watchers/toolkitWatcher.ts(2,21): error TS7016: Could not find a declaration file for module 'fs-extra'. '/Users/mpstaton/code/lossless-monorepo/tidyverse/observers/node_modules/.pnpm/fs-extra@11.3.0/node_modules/fs-extra/lib/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/fs-extra` if it exists or add a new declaration (.d.ts) file containing `declare module 'fs-extra';`
+
+    at createTSError (/Users/mpstaton/code/lossless-monorepo/tidyverse/observers/node_modules/.pnpm/ts-node@10.9.2_@types+node@20.17.30_typescript@5.8.3/node_modules/ts-node/src/index.ts:859:12)
+    at reportTSError (/Users/mpstaton/code/lossless-monorepo/tidyverse/observers/node_modules/.pnpm/ts-node@10.9.2_@types+node@20.17.30_typescript@5.8.3/node_modules/ts-node/src/index.ts:863:19)
+    at getOutput (/Users/mpstaton/code/lossless-monorepo/tidyverse/observers/node_modules/.pnpm/ts-node@10.9.2_@types+node@20.17.30_typescript@5.8.3/node_modules/ts-node/src/index.ts:1077:36)
+    at Object.compile (/Users/mpstaton/code/lossless-monorepo/tidyverse/observers/node_modules/.pnpm/ts-node@10.9.2_@types+node@20.17.30_typescript@5.8.3/node_modules/ts-node/src/index.ts:1433:41)
+    at Module.m._compile (/Users/mpstaton/code/lossless-monorepo/tidyverse/observers/node_modules/.pnpm/ts-node@10.9.2_@types+node@20.17.30_typescript@5.8.3/node_modules/ts-node/src/index.ts:1617:30)
+    at loadTS (node:internal/modules/cjs/loader:1826:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/mpstaton/code/lossless-monorepo/tidyverse/observers/node_modules/.pnpm/ts-node@10.9.2_@types+node@20.17.30_typescript@5.8.3/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1469:32)
+    at Function._load (node:internal/modules/cjs/loader:1286:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14) {
+  diagnosticCodes: [ 7016 ]
+}
+ ELIFECYCLE  Command failed with exit code 1.

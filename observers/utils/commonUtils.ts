@@ -158,7 +158,8 @@ export function isEnabledForPath(filePath: string, optionName: keyof DirectoryCo
   for (const dirConfig of USER_OPTIONS.directories) {
     const dirPath = dirConfig.path.replace(/\\/g, '/');
     if (normalizedPath.includes(dirPath)) {
-      const enabled = Boolean(dirConfig.services && dirConfig.services[optionName] === true);
+      const services = dirConfig.services || {};
+      const enabled = optionName in services ? Boolean(services[optionName as keyof typeof services]) : false;
       if (!bestMatch || dirPath.length > bestMatch.path.length) {
         bestMatch = { path: dirPath, enabled };
       }
