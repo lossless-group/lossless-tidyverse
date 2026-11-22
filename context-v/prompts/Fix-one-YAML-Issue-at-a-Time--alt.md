@@ -1,5 +1,5 @@
 ---
-title: Fix one YAML Issue at a Time
+title: Clean URL Properties in YAML Frontmatter, One Script at a Time
 lede: Systematic approach to cleaning URL properties in YAML frontmatter
 date_authored_initial_draft: 2025-03-17
 date_authored_current_draft: 2025-03-17

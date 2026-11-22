@@ -1,5 +1,5 @@
 ---
-title: Frontmatter consistency through filesystem observer
+title: Validate Frontmatter against Templates with a Filesystem Observer
 lede: Leverage Node.js filesystem APIs to monitor content directories, automatically validate and update frontmatter based on templates
 date_authored_initial_draft: 2025-03-29
 date_authored_current_draft: 2025-04-06

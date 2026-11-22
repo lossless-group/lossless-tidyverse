@@ -1,6 +1,6 @@
 ---
-title: 'Fire up the Observer'
-lede: 'Ready to automate? Learn how to launch the Observer system for seamless citation and frontmatter processing across your content library.'
+title: 'Integrate the Issue Resolution Collection into the Observer System'
+lede: 'Finish bringing the Issue Resolution collection into the observer system: audit its frontmatter, learn the watcher pattern, then implement its watcher.'
 image_prompt: 'A futuristic terminal window launching an observer robot, with glowing file paths, citation icons, and YAML frontmatter floating in a digital workspace.'
 date_authored_initial_draft: 2025-04-13
 date_authored_current_draft: 2025-05-09
