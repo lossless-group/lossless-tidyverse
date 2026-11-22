@@ -6,8 +6,9 @@ date_authored_current_draft: 2025-03-26
 date_authored_final_draft: null
 date_first_published: null
 at_semantic_version: 0.0.0.1
-status: In-Progress
-augmented_with: 'Windsurf Cascade on Claude 3.5 Sonnet'
+status: Implementing
+augmented_with:
+  - 'Windsurf Cascade on Claude 3.5 Sonnet'
 category: RAG-Input
 image_prompt: 'A digital assembly line of scripts, each module passing markdown files through cleaning, detection, and reporting stations—glowing with automation and order.'
 date_created: 2025-03-26
@@ -18,6 +19,8 @@ tags: [Script-Pipeline, Data-Cleaning, Tidy-Data, Markdown-Processing, Node-Scri
 authors:
   - Michael Staton
 banner_image: https://ik.imagekit.io/xvpgfijuw/uploads/lossless/reminders/2025-05-05_banner_image_Maintain-Scripting-Pipeline_5a991106-1491-4555-9e46-5f1548a54c84_SRLVoZukD.webp
+hex_code: yqg6l9
+type: Blueprints
 ---
 # Creating a Modular Script Pipeline
 

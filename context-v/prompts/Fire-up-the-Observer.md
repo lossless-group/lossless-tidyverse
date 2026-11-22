@@ -4,12 +4,13 @@ lede: "Ready to automate? Learn how to launch the Observer system for seamless c
 image_prompt: "A robot representing an AI Code Assistant lighting firework rockets.  Behind them is a large telescope pointing into the night sky."
 date_authored_initial_draft: 2025-04-13
 date_authored_current_draft: 2025-04-13
-date_authored_final_draft: []
-date_first_published: []
+date_authored_final_draft:
+date_first_published:
 date_last_updated: 2025-07-21
 at_semantic_version: 0.1.0.0
 status: To-Implement
-augmented_with: "Windsurf Cascade on Claude 3.7 Sonnet"
+augmented_with:
+  - "Windsurf Cascade on Claude 3.7 Sonnet"
 category: Documentation
 date_created: 2025-04-13
 date_modified: 2025-07-20
@@ -19,6 +20,8 @@ authors: ["Michael Staton"]
 banner_image: "https://ik.imagekit.io/xvpgfijuw/uploads/lossless/july/Fire-up-the-Observer_banner_image_1753055485725_J5mSxyJ2c.webp"
 portrait_image: "https://ik.imagekit.io/xvpgfijuw/uploads/lossless/july/Fire-up-the-Observer_portrait_image_1753055488227_vJxw323Sg.webp"
 square_image: "https://ik.imagekit.io/xvpgfijuw/uploads/lossless/july/Fire-up-the-Observer_square_image_1753055491138_8yUU_kQWT.webp"
+hex_code: x7aruu
+type: Prompts
 ---
 # USER GOAL:
 

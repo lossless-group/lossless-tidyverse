@@ -8,7 +8,8 @@ date_first_published:
 date_last_updated: 
 at_semantic_version: 0.0.0.1
 status: To-Prompt
-augmented_with: Windsurf Cascade on Claude 3.5 Sonnet
+augmented_with:
+  - Windsurf Cascade on Claude 3.5 Sonnet
 category: Prompts
 image_prompt: A robot orchestrator at an antique desk, illuminated by candlelight, writing logic diagrams with a quill—surrounded by subsystem blueprints and glowing data flows.
 date_created: 2025-04-20
@@ -19,6 +20,8 @@ tags: [Workflow, Filesystem-Observers]
 authors:
   - Michael Staton
 banner_image: https://ik.imagekit.io/xvpgfijuw/uploads/lossless/reminders/2025-05-05_banner_image_The-Simplified-Observer-Logic_78edb0b6-22cc-4a73-a2c7-e545fa1c03e6_t1Fgy5pRZ.webp
+hex_code: qjiz3r
+type: Reminders
 ---
 # Logic:
 

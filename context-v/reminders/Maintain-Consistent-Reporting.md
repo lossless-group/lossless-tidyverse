@@ -7,7 +7,8 @@ date_authored_final_draft: null
 date_first_published: null
 at_semantic_version: 0.0.0.1
 status: To-Do
-augmented_with: 'Windsurf Cascade on Claude 3.5 Sonnet'
+augmented_with:
+  - 'Windsurf Cascade on Claude 3.5 Sonnet'
 category: Prompts
 image_prompt: 'A digital ledger or dashboard with checklists, report icons, and YAML files, all connected by glowing audit trails and summary statistics.'
 date_created: 2025-03-26
@@ -18,6 +19,8 @@ tags: [Workflow, Reporting, Automation, Auditing]
 authors:
   - Michael Staton
 banner_image: https://ik.imagekit.io/xvpgfijuw/uploads/lossless/reminders/2025-05-05_banner_image_Maintain-Consistent-Reporting_afa93299-0928-4f0d-b7a1-a6da6737da7a_ml6m7rcNa.webp
+hex_code: rjvpu2
+type: Reminders
 ---
 # Reports always always ALWAYS ALWAYS 
 
